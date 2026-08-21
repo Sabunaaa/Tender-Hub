@@ -1,0 +1,36 @@
+<div class="ui-widget-content ui-corner-all pad4px" id="z" style="margin:4px 0">
+
+<p class="paratitle">
+	Chronology
+	<button style="float:right" type="button" id="nohist"></button>
+</p>
+<table width="100%" cellspacing="0" cellpadding="4" class="with-free-label-history ui-corner-all">
+<tbody>
+	<tr bgcolor="#ffffff">
+		<td width="140">10.03.2026 21:39</td>
+		<td>Contract not awarded </td>
+	</tr><tr bgcolor="#ffffff">
+		<td width="140">27.02.2026 13:02</td>
+		<td>Selection/Evaluation</td>
+	</tr><tr bgcolor="#ffffff">
+		<td width="140">27.02.2026 13:00</td>
+		<td>Additional rounds of trade ended</td>
+	</tr><tr bgcolor="#ffffff">
+		<td width="140">25.02.2026 00:00</td>
+		<td>Bidding commenced</td>
+	</tr><tr bgcolor="#ffffff">
+		<td width="140">11.02.2026 21:54</td>
+		<td>Tender announced</td>
+	</tr>
+</tbody>
+</table>
+
+</div>
+
+<script type="text/javascript">
+$(document).ready(function() {
+	$('#nohist').button({text:false, icons:{primary: "ui-icon-triangle-1-n"}}).click(function(){
+		$('#history').html('')
+	});
+});
+</script>

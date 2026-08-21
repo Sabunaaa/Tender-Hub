@@ -1,0 +1,108 @@
+<div id="app_bids">
+
+	
+
+	<p align="right">
+		<button type="button" id="refrsh">Refresh</button>
+		<button type="button" id="showtdocs">Technical Documentation </button>
+	</p>
+
+	<div id="app_tdocs" style="margin-top:3em;"></div>
+	
+	
+	
+	
+
+	<table width="100%" border="0" cellspacing="1" cellpadding="6" class="ktable" style="margin-bottom:2em">
+		<thead>
+			<tr class="ui-widget-header">
+				<td>Bidder</td>
+				<td>Last Offer<br />Amount/Date</td>
+				<td>First Offer<br />Amount/Date</td>
+				<td align="center">Offers</td>
+			</tr>
+		</thead>
+		<tbody>
+			<tr bgcolor="#ffffff" id="B672563771108">
+				<td class="activebid1">
+					<a href="#" onclick="ShowProfile(129836)"><img src="images/profile24.png"></a>
+					
+					<span class="color-1">ინდივიდუალური მეწარმე შაქრო ნერგაძე</span>
+				</td>
+				<td class="activebid1"><strong>16`080.00</strong>&nbsp;<br /><span class="date">18.02.2026 23:22</span></td>
+				<td class="activebid1">16`080.00&nbsp;<br /><span class="date">18.02.2026 23:22</span></td>
+				<td align="center" class="activebid1">[1] &nbsp;<a href="javascript:void(0)" onclick="ShowBidHistory(672563,771108)">ნახვა</a> </td>
+
+			</tr><tr bgcolor="#ffffff" id="B672563771420">
+				<td class="activebid1">
+					<a href="#" onclick="ShowProfile(48498)"><img src="images/profile24.png"></a>
+					
+					<span class="color-1">შპს გოინგ ფორვარდ</span>
+				</td>
+				<td class="activebid1"><strong>14`700.00</strong>&nbsp;<br /><span class="date">20.02.2026 11:56</span></td>
+				<td class="activebid1">14`700.00&nbsp;<br /><span class="date">20.02.2026 11:56</span></td>
+				<td align="center" class="activebid1">[1] &nbsp;<a href="javascript:void(0)" onclick="ShowBidHistory(672563,771420)">ნახვა</a> </td>
+
+			</tr><tr bgcolor="#ffffff" id="B672563771347">
+				<td class="activebid1">
+					<a href="#" onclick="ShowProfile(114658)"><img src="images/profile24.png"></a>
+					
+					<span class="color-1">შპს სამი ძმა -2023 ლ.ნ</span>
+				</td>
+				<td class="activebid1"><strong>14`635.00</strong>&nbsp;<br /><span class="date">20.02.2026 08:45</span></td>
+				<td class="activebid1">14`700.00&nbsp;<br /><span class="date">20.02.2026 08:43</span></td>
+				<td align="center" class="activebid1">[2] &nbsp;<a href="javascript:void(0)" onclick="ShowBidHistory(672563,771347)">ნახვა</a> </td>
+
+			</tr><tr bgcolor="#ffffff" id="B672563771290">
+				<td class="activebid1">
+					<a href="#" onclick="ShowProfile(82726)"><img src="images/profile24.png"></a>
+					
+					<span class="color-1">შპს თ&amp;ე კომპანი</span>
+				</td>
+				<td class="activebid1"><strong>12`990.00</strong>&nbsp;<br /><span class="date">19.02.2026 20:46</span></td>
+				<td class="activebid1">12`990.00&nbsp;<br /><span class="date">19.02.2026 20:46</span></td>
+				<td align="center" class="activebid1">[1] &nbsp;<a href="javascript:void(0)" onclick="ShowBidHistory(672563,771290)">ნახვა</a> </td>
+
+			</tr>
+		</tbody>
+	</table>
+</div>
+
+
+<script type="text/javascript">
+	$(document).ready(function () {
+		$('#refrsh').button({
+			icons: {
+				primary: "ui-icon-refresh"
+			}
+		}).click(function () {
+			ShowApp(672563, '', 2)
+		});
+		$('#showtdocs').button({
+			icons: {
+				primary: "ui-icon-triangle-1-s"
+			}
+		}).click(function () {
+			$.get('library/controller.php', {
+				action: 'app_tdocs',
+				app_id: 672563
+			}, function (data) {
+				$('#app_tdocs').html(data);
+			});
+		})
+	});
+
+	function ShowBidHistory(bid, app) {
+		var targetelm = 'B' + bid + app;
+		var targetcontainer = targetelm + 'C';
+		$('#' + targetcontainer).parent().remove();
+		$('#' + targetelm).after('<tr><td colspan="5" id="' + targetcontainer + '"></td></tr>');
+		$.get('library/controller.php', {
+			action: 'view_bid',
+			app_id: bid,
+			bid_id: app
+		}, function (data) {
+			$('#' + targetcontainer).html(data);
+		});
+	}
+</script>

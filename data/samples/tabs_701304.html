@@ -1,0 +1,30 @@
+<div class="pad4px">
+	<button id="back_button_2" type="button">Back</button>
+</div>
+<div id="application_tabs">
+	<ul>
+		<li><a href="library/controller.php?action=app_main&app_id=701304&key=7ee496d1d84e547fd45a751a365713da"><strong>NAT260017634</strong></a></li>
+		<li><a href="library/controller.php?action=app_docs&app_id=701304&key=7ee496d1d84e547fd45a751a365713da">Documentation</a></li>
+		<li><a href="library/controller.php?action=app_bids&app_id=701304&key=7ee496d1d84e547fd45a751a365713da">Offers</a></li>
+		
+		
+		<li><a href="library/controller.php?action=agency_docs&app_id=701304&key=7ee496d1d84e547fd45a751a365713da">Result</a></li>
+		
+	</ul>
+</div>
+<script>
+	$(document).ready(function () {
+		back_to = '#A701304';
+		$("#back_button_2").button({
+			icons: {
+				primary: 'ui-icon-triangle-1-w'
+			}
+		}).click(function () {
+			$('#app').html('')
+			$('#app_list').show();
+			$(back_to).effect("pulsate", {
+				times: 5
+			}, 500);
+		});
+	});
+</script>

@@ -1,0 +1,130 @@
+<div id="app_main">
+	<div id="print_area">
+		<table width="100%" cellspacing="0" cellpadding="6" class="ktable with-label">
+			<colgroup>
+				<col width="188">
+				<col>
+			</colgroup>
+			<tbody>
+				<tr>
+					<td>Procurement type</td>
+					<td>Electronic Tender Without Reverse Auction(NAT) </td>
+				</tr>
+				
+				
+				
+				<tr>
+					<td>Announcment number</td>
+					<td><strong>NAT260017635</strong></td>
+				</tr>
+				<tr>
+					<td>Procurement proceeding status</td>
+					<td valign="middle"><img src="images/statuses/stat10.png"> Tender announced</td>
+				</tr>
+				<tr>
+					<td>Procuring entities</td>
+					
+					<td><a href="javascript:void(0)" onclick="ShowProfile(30101)"><img src="images/profile24.png"> Tbilisi Agency on the Management of Day Nursery Institutions  </a></td>
+				</tr>
+				<tr>
+					<td>Procurement announcment date</td>
+					<td>20.08.2026 23:30</td>
+				</tr>
+				<tr>
+					<td>Bids accepted from</td>
+					<td>29.08.2026 00:00</td>
+				</tr>
+				<tr>
+					<td>Deadline for bid submission</td>
+					<td>01.09.2026 13:30</td>
+				</tr>
+				
+				
+				<tr>
+					<td>Estimated value of procurement</td>
+					<td><span>213`750.00 GEL</span></td>
+				</tr>
+				<tr>
+					
+					<td>Bid must be submitted </td>
+					<td>Including VAT</td>
+				</tr>
+				<tr>
+					<td>Procuring category</td>
+					<td class="subject_name"><strong></strong> 37500000-Games and toys; fairground amusements</td>
+				</tr>
+				<tr>
+					
+					<td valign="top">CPV codes</td>
+					<td>&nbsp;</td>
+				</tr>
+				<tr>
+					<td colspan="2">
+						<div style="text-align:left;color:#222">
+							<ul style="margin:0;padding:8px;list-style-type:disc;">
+								<li style="padding:4px">
+									&nbsp;37520000 - Toys
+									<div style="padding:1px 1px 1px 42px" class="color-1"></div>
+								</li>
+							</ul>
+						</div>
+					</td>
+				</tr>
+				<tr>
+					<td>Supply Period</td>
+					
+					<td>2026 წლის 02 ნოემბრიდან 2026 წლის 13 ნოემბრის ჩათვლით</td>
+				</tr>
+				<tr>
+					<td valign="top">Additional Info</td>
+					<td>&nbsp;</td>
+				</tr>
+
+
+				<tr>
+					<td colspan="2">
+						<div class="blabla">ა(ა)იპ თბილისის საბავშვო ბაგა-ბაღების მართვის სააგენტოს მიერ ქ. თბილისის საბავშვო ბაგა-ბაღებისთვის საჭირო საახალწლო თემატიკის სათამაშოების სახელმწიფო შესყიდვა.</div>
+					</td>
+				</tr>
+				<tr>
+					<td>Amount or Volume of Procurements</td>
+					<td>45 000 ცალი</td>
+				</tr>
+				<tr>
+					<td>Bid reduction step</td>
+					<td>2`000.00 GEL</td>
+				</tr>
+				<tr>
+					<td>Guarantee amount</td>
+					<td>2`138 GEL</td>
+				</tr>
+				<tr>
+					
+					<td>Guarantee validity period</td>
+					<td>160 Day</td>
+				</tr>
+			</tbody>
+		</table>
+	</div>
+	<ul class="date" style="line-height:160%;list-style-type:none;padding:0;margin-top:6px">
+		<li style="text-align:right">Saved: giorgi gogisvanidze :: 18.08.2026 16:54</li>
+		<li style="text-align:right">Last modified by:: giorgi gogisvanidze :: 20.08.2026 23:30</li>
+	</ul>
+	<div class="pad4px">
+		
+		<button id="print_button" type="button">Print</button>
+		<script>
+			$("#print_button").button({ icons: { primary: "ui-icon-print" } }).click(function () { $("#print_area").printArea({ mode: "popup", popClose: true, popTitle: "STATE PROCUREMENT AGENCY", popWd: 700, popHt: 700 }); });
+		</script>
+		<span>
+			<button id="btn_appstatushistory" type="button">Chronology</button>
+			<script type="text/javascript">
+				$('#btn_appstatushistory').button({ icons: { primary: "ui-icon-triangle-1-s" } }).click(function () { $.get('library/controller.php', { app_id: 700990, action: 'app_statushistory' }, function (data) { $('#history').html(data); }) });
+			</script>
+		</span>
+	</div>
+	<div style="text-align:right;font-weight:bold">
+		<pre><span class="color-1">Procurement link::</span> http://tenders.procurement.gov.ge/public/?go=700990&amp;lang=en</pre>
+	</div>
+	<div id="history"></div>
+</div>

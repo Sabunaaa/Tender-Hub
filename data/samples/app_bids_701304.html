@@ -1,0 +1,68 @@
+<div id="app_bids">
+
+	
+
+	<p align="right">
+		<button type="button" id="refrsh">Refresh</button>
+		<button type="button" id="showtdocs">Technical Documentation </button>
+	</p>
+
+	<div id="app_tdocs" style="margin-top:3em;"></div>
+	
+	
+	
+	
+
+	<table width="100%" border="0" cellspacing="1" cellpadding="6" class="ktable" style="margin-bottom:2em">
+		<thead>
+			<tr class="ui-widget-header">
+				<td>Bidder</td>
+				<td>Last Offer<br />Amount/Date</td>
+				<td>First Offer<br />Amount/Date</td>
+				<td align="center">Offers</td>
+			</tr>
+		</thead>
+		<tbody>
+			
+		</tbody>
+	</table>
+</div>
+
+
+<script type="text/javascript">
+	$(document).ready(function () {
+		$('#refrsh').button({
+			icons: {
+				primary: "ui-icon-refresh"
+			}
+		}).click(function () {
+			ShowApp(701304, '', 2)
+		});
+		$('#showtdocs').button({
+			icons: {
+				primary: "ui-icon-triangle-1-s"
+			}
+		}).click(function () {
+			$.get('library/controller.php', {
+				action: 'app_tdocs',
+				app_id: 701304
+			}, function (data) {
+				$('#app_tdocs').html(data);
+			});
+		})
+	});
+
+	function ShowBidHistory(bid, app) {
+		var targetelm = 'B' + bid + app;
+		var targetcontainer = targetelm + 'C';
+		$('#' + targetcontainer).parent().remove();
+		$('#' + targetelm).after('<tr><td colspan="5" id="' + targetcontainer + '"></td></tr>');
+		$.get('library/controller.php', {
+			action: 'view_bid',
+			app_id: bid,
+			bid_id: app
+		}, function (data) {
+			$('#' + targetcontainer).html(data);
+		});
+	}
+</script>

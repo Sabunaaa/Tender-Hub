@@ -1,0 +1,160 @@
+<table id="list_apps_by_subject" width="100%" cellspacing="1" cellpadding="4" class="ktable">
+<colgroup>
+<col width="24">
+<col>
+</colgroup>
+	<tbody>
+	<tr id="A667651" onclick="$('#app_list').hide();ShowApp(667651,'',0,'f7f2811343a928c14ab2ba3b0a5dde0e')">
+		<td valign="top">
+			<img title="f7f2811343a928c14ab2ba3b0a5dde0e" src="images/statuses/stat100.png">
+			
+		</td>
+		<td>
+		<p class="status">Contract not awarded <br/>
+			
+			
+			<span class='color-1'>Bidders - 1</span>
+		</p>
+		<p class='lbl color-1'>Electronic Tender Without Reverse Auction(NAT)</p>
+		<p>Announcment number: <strong>NAT260002477</strong></p>
+		<p>Procurement announcment date: 11.02.2026</p>
+		<p>Offer reception term: 27.02.2026</p>
+		<p>Procuring entities: <strong>The Ministry of Internal Affairs of Georgia</strong></p>
+		<p>Procuring category: <span class="color-2"><strong></strong> 50800000-Miscellaneous repair and maintenance services</span></p>
+		<p>Estimated value of procurement: <span class="color-1"><strong>8`410.00</strong> GEL</span></p>
+		</td>
+	</tr><tr id="A672563" onclick="$('#app_list').hide();ShowApp(672563,'',0,'e5fc6ab1e622440a0e56fd84d53fe83c')">
+		<td valign="top">
+			<img title="e5fc6ab1e622440a0e56fd84d53fe83c" src="images/statuses/stat140.png">
+			
+		</td>
+		<td>
+		<p class="status">Contract awarded<br/>
+			<span class="agrfg20">Fulfilled</br/></span>
+			<span class="color-2">Winner: shps sami dzma -2023 l.n<br/></span>
+			<span class='color-1'>Bidders - 4</span>
+		</p>
+		<p class='lbl color-1'>Electronic Tender Without Reverse Auction(NAT)</p>
+		<p>Announcment number: <strong>NAT260002476</strong></p>
+		<p>Procurement announcment date: 11.02.2026</p>
+		<p>Offer reception term: 20.02.2026</p>
+		<p>Procuring entities: <strong>Animals monitoring agency</strong></p>
+		<p>Procuring category: <span class="color-2"><strong></strong> 44200000-Structural products</span></p>
+		<p>Estimated value of procurement: <span class="color-1"><strong>16`200.00</strong> GEL</span></p>
+		</td>
+	</tr><tr id="A671643" onclick="$('#app_list').hide();ShowApp(671643,'',0,'7de3870984773923129fd766ef16269f')">
+		<td valign="top">
+			<img title="7de3870984773923129fd766ef16269f" src="images/statuses/stat140.png">
+			
+		</td>
+		<td>
+		<p class="status">Contract awarded<br/>
+			<span class="agrfg10">Ongoing</br/></span>
+			<span class="color-2">Winner: kard solushen<br/></span>
+			<span class='color-1'>Bidders - 1</span>
+		</p>
+		<p class='lbl color-1'>Electronic Tender Without Reverse Auction(NAT)</p>
+		<p>Announcment number: <strong>NAT260002475</strong></p>
+		<p>Procurement announcment date: 11.02.2026</p>
+		<p>Offer reception term: 26.02.2026</p>
+		<p>Procuring entities: <strong>The Ministry of Internal Affairs of Georgia</strong></p>
+		<p>Procuring category: <span class="color-2"><strong></strong> 30100000-Office machinery, equipment and supplies except computers, printers and furniture</span></p>
+		<p>Estimated value of procurement: <span class="color-1"><strong>24`850.00</strong> GEL</span></p>
+		</td>
+	</tr><tr id="A657806" onclick="$('#app_list').hide();ShowApp(657806,'',0,'3a8647755bd4a55c8c0d0f7032b82a5e')">
+		<td valign="top">
+			<img title="3a8647755bd4a55c8c0d0f7032b82a5e" src="images/statuses/stat140.png">
+			
+		</td>
+		<td>
+		<p class="status">Contract awarded<br/>
+			<span class="agrfg10">Ongoing</br/></span>
+			<span class="color-2">Winner: jeolabinstrumentebi<br/></span>
+			<span class='color-1'>Bidders - 1</span>
+		</p>
+		<p class='lbl color-1'>Electronic Tender Without Reverse Auction(NAT)</p>
+		<p>Announcment number: <strong>NAT260002474</strong></p>
+		<p>Procurement announcment date: 11.02.2026</p>
+		<p>Offer reception term: 26.02.2026</p>
+		<p>Procuring entities: <strong>The Ministry of Internal Affairs of Georgia</strong></p>
+		<p>Procuring category: <span class="color-2"><strong></strong> 33600000-Pharmaceutical products</span></p>
+		<p>Estimated value of procurement: <span class="color-1"><strong>18`700.00</strong> GEL</span></p>
+		</td>
+	</tr>
+	</tbody>
+</table>
+
+<div class="pager pad4px">
+    <span>
+    	<button id="btn_first" type="button">&nbsp;</button>
+		<button id="btn_prev" type="button">&nbsp;</button>
+		<button type="button">1034&nbsp;Record(s)&nbsp;(page: 1/259)</button>
+		<button 1 id="btn_next" type="button">&nbsp;</button>
+		<button 1 id="btn_last" type="button">&nbsp;</button>
+	</span>
+</div>
+
+<script>
+	$('#list_apps_by_subject tbody tr').alternate({hover:true});
+	
+	var plastpage = eval('259');
+	
+    $(function(){
+/*
+        $("#back_button").button({
+			icons: {primary: 'ui-icon-triangle-1-w'}
+		}).click(function(){
+			$('#app_list').hide();
+			$('#subject_list').show();
+        });
+*/		
+		$("#btn_first").button({
+			text: false,
+			icons: {primary: "ui-icon-seek-first"}
+		}		
+		).click(function() {
+			$.get('library/controller.php', {action:'search_app', page: 1}, function(res){$('#app_list').html(res);});
+		})
+		.next()
+		
+		.button({
+			text: false,
+			icons: {primary: "ui-icon-seek-prev"}
+		})
+		.click(function() {
+			$.get('library/controller.php', {action:'search_app', page:'prev'}, function(res){$('#app_list').html(res);});
+		})
+		.next()
+		
+		.button({
+			icons: {primary: "ui-icon-refresh"}
+		})
+		.click(function() {
+			$.get('library/controller.php', {action:'search_app', page:'current'}, function(res){$('#app_list').html(res);});
+		})
+		.next()
+		
+		.button({
+			text: false,
+			icons: {primary: "ui-icon-seek-next"}
+		}		
+		).click(function() {
+			$.get('library/controller.php', {action:'search_app', page:'next'}, function(res){$('#app_list').html(res);});
+		})
+		.next()
+		
+		.button({
+			text: false,
+			icons: {primary: "ui-icon-seek-end"}
+		})
+		.click(function() {
+			$.get('library/controller.php', {action:'search_app', page:plastpage }, function(res){$('#app_list').html(res);});
+		})
+		.parent()
+		.buttonset();
+		
+		//window.location.hash = "#state_app_list";
+
+    });
+</script>
+

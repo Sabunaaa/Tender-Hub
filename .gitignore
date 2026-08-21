@@ -1,0 +1,12 @@
+﻿.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+frontend/dist/
+data/tenders.db
+data/tenders.db-*
+data/logs/
+*.log
+.DS_Store
+frontend/.env.local

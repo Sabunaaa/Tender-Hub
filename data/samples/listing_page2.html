@@ -1,0 +1,160 @@
+<table id="list_apps_by_subject" width="100%" cellspacing="1" cellpadding="4" class="ktable">
+<colgroup>
+<col width="24">
+<col>
+</colgroup>
+	<tbody>
+	<tr id="A701279" onclick="$('#app_list').hide();ShowApp(701279,'',0,'b2f6008ab31864c4b2844c672875d046')">
+		<td valign="top">
+			<img title="b2f6008ab31864c4b2844c672875d046" src="images/statuses/stat10.png">
+			
+		</td>
+		<td>
+		<p class="status">Tender announced<br/>
+			
+			
+			
+		</p>
+		<p class='lbl color-1'>Electronic Tender Without Reverse Auction(NAT)</p>
+		<p>Announcment number: <strong>NAT260017632</strong></p>
+		<p>Procurement announcment date: 20.08.2026</p>
+		<p>Offer reception term: 01.09.2026</p>
+		<p>Procuring entities: <strong>Municipality Of Poty City</strong></p>
+		<p>Procuring category: <span class="color-2"><strong></strong> 45200000-Works for complete or part construction and civil engineering work</span></p>
+		<p>Estimated value of procurement: <span class="color-1"><strong>177`717.00</strong> GEL</span></p>
+		</td>
+	</tr><tr id="A701260" onclick="$('#app_list').hide();ShowApp(701260,'',0,'7031d21af9779f7f3e9d2aa78081010a')">
+		<td valign="top">
+			<img title="7031d21af9779f7f3e9d2aa78081010a" src="images/statuses/stat10.png">
+			
+		</td>
+		<td>
+		<p class="status">Tender announced<br/>
+			
+			
+			
+		</p>
+		<p class='lbl color-1'>Electronic Tender Without Reverse Auction(NAT)</p>
+		<p>Announcment number: <strong>NAT260017631</strong></p>
+		<p>Procurement announcment date: 20.08.2026</p>
+		<p>Offer reception term: 31.08.2026</p>
+		<p>Procuring entities: <strong>Tbilisi Agency on the Management of Day Nursery Institutions  </strong></p>
+		<p>Procuring category: <span class="color-2"><strong></strong> 44200000-Structural products</span></p>
+		<p>Estimated value of procurement: <span class="color-1"><strong>19`250.00</strong> GEL</span></p>
+		</td>
+	</tr><tr id="A700650" onclick="$('#app_list').hide();ShowApp(700650,'',0,'0125c521da8fccb8707626af405a1b28')">
+		<td valign="top">
+			<img title="0125c521da8fccb8707626af405a1b28" src="images/statuses/stat10.png">
+			
+		</td>
+		<td>
+		<p class="status">Tender announced<br/>
+			
+			
+			
+		</p>
+		<p class='lbl color-1'>Electronic Tender Without Reverse Auction(NAT)</p>
+		<p>Announcment number: <strong>NAT260017630</strong></p>
+		<p>Procurement announcment date: 20.08.2026</p>
+		<p>Offer reception term: 01.09.2026</p>
+		<p>Procuring entities: <strong>National Agency for Cultural Heritage Preservation of Georgia </strong></p>
+		<p>Procuring category: <span class="color-2"><strong></strong> 38600000-Optical instruments</span></p>
+		<p>Estimated value of procurement: <span class="color-1"><strong>21`400.00</strong> GEL</span></p>
+		</td>
+	</tr><tr id="A695543" onclick="$('#app_list').hide();ShowApp(695543,'',0,'75329fa796843ef5eeb68ee447129f3d')">
+		<td valign="top">
+			<img title="75329fa796843ef5eeb68ee447129f3d" src="images/statuses/stat10.png">
+			
+		</td>
+		<td>
+		<p class="status">Tender announced<br/>
+			
+			
+			
+		</p>
+		<p class='lbl color-1'>Electronic Tender Without Reverse Auction(NAT)</p>
+		<p>Announcment number: <strong>NAT260017629</strong></p>
+		<p>Procurement announcment date: 20.08.2026</p>
+		<p>Offer reception term: 28.09.2026</p>
+		<p>Procuring entities: <strong>The State Subordinate Agency - Roads Department of Georgia under the Ministry of Infrastructure of Georgia</strong></p>
+		<p>Procuring category: <span class="color-2"><strong></strong> 45200000-Works for complete or part construction and civil engineering work</span></p>
+		<p>Estimated value of procurement: <span class="color-1"><strong>75`584.22</strong> GEL</span></p>
+		</td>
+	</tr>
+	</tbody>
+</table>
+
+<div class="pager pad4px">
+    <span>
+    	<button id="btn_first" type="button">&nbsp;</button>
+		<button id="btn_prev" type="button">&nbsp;</button>
+		<button type="button">239&nbsp;Record(s)&nbsp;(page: 2/60)</button>
+		<button 1 id="btn_next" type="button">&nbsp;</button>
+		<button 1 id="btn_last" type="button">&nbsp;</button>
+	</span>
+</div>
+
+<script>
+	$('#list_apps_by_subject tbody tr').alternate({hover:true});
+	
+	var plastpage = eval('60');
+	
+    $(function(){
+/*
+        $("#back_button").button({
+			icons: {primary: 'ui-icon-triangle-1-w'}
+		}).click(function(){
+			$('#app_list').hide();
+			$('#subject_list').show();
+        });
+*/		
+		$("#btn_first").button({
+			text: false,
+			icons: {primary: "ui-icon-seek-first"}
+		}		
+		).click(function() {
+			$.get('library/controller.php', {action:'search_app', page: 1}, function(res){$('#app_list').html(res);});
+		})
+		.next()
+		
+		.button({
+			text: false,
+			icons: {primary: "ui-icon-seek-prev"}
+		})
+		.click(function() {
+			$.get('library/controller.php', {action:'search_app', page:'prev'}, function(res){$('#app_list').html(res);});
+		})
+		.next()
+		
+		.button({
+			icons: {primary: "ui-icon-refresh"}
+		})
+		.click(function() {
+			$.get('library/controller.php', {action:'search_app', page:'current'}, function(res){$('#app_list').html(res);});
+		})
+		.next()
+		
+		.button({
+			text: false,
+			icons: {primary: "ui-icon-seek-next"}
+		}		
+		).click(function() {
+			$.get('library/controller.php', {action:'search_app', page:'next'}, function(res){$('#app_list').html(res);});
+		})
+		.next()
+		
+		.button({
+			text: false,
+			icons: {primary: "ui-icon-seek-end"}
+		})
+		.click(function() {
+			$.get('library/controller.php', {action:'search_app', page:plastpage }, function(res){$('#app_list').html(res);});
+		})
+		.parent()
+		.buttonset();
+		
+		//window.location.hash = "#state_app_list";
+
+    });
+</script>
+
