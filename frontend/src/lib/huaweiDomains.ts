@@ -1,5 +1,5 @@
-/** Huawei Enterprise ICT product lines shown as Engagement domains. */
-export const HUAWEI_ENTERPRISE_DOMAINS = [
+/** Huawei Enterprise ICT product lines shown as Engagement products. */
+export const HUAWEI_ENTERPRISE_PRODUCTS = [
   'Storage',
   'IdeaHub',
   'Datacom',
@@ -13,4 +13,4 @@ export const HUAWEI_ENTERPRISE_DOMAINS = [
   'Private Wireless',
 ] as const
 
-export type HuaweiEnterpriseDomain = (typeof HUAWEI_ENTERPRISE_DOMAINS)[number]
+export type HuaweiEnterpriseProduct = (typeof HUAWEI_ENTERPRISE_PRODUCTS)[number]

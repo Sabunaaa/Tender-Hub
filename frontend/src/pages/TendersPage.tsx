@@ -5,7 +5,7 @@ import { formatISO, subDays } from 'date-fns'
 import { api } from '../api'
 import { Card, ErrorState, FilterSection, LoadingState, PageHeader, StatusBadge } from '../components/ui'
 import { errorMessage } from '../lib/errors'
-import { formatDate, formatGel, shortCategory } from '../lib/format'
+import { formatDate, formatGel, shortCategory, shortProcurementType } from '../lib/format'
 import { DEVICE_KEYWORDS, activeDatePreset, filtersFromParams, parseList } from '../lib/tenderFilters'
 
 const COLUMN_STORAGE_KEY = 'tender-hub.visible-columns'
@@ -59,7 +59,9 @@ const TABLE_COLUMNS = [
   { id: 'announced', label: 'Announced' },
   { id: 'deadline', label: 'Deadline' },
   { id: 'value', label: 'Value' },
-  { id: 'bidders', label: 'Bidders' },
+  { id: 'procurementType', label: 'Procurement type' },
+  { id: 'donor', label: 'Donor' },
+  { id: 'spec', label: 'Spec text' },
   { id: 'status', label: 'Status' },
 ] as const
 
@@ -72,7 +74,9 @@ const DEFAULT_COLUMNS: Record<ColumnId, boolean> = {
   announced: true,
   deadline: true,
   value: true,
-  bidders: true,
+  procurementType: true,
+  donor: true,
+  spec: true,
   status: true,
 }
 
@@ -186,6 +190,16 @@ export function TendersPage() {
     next.set('page', '1')
     if (withinDeadlineActive) next.delete('withinDeadline')
     else next.set('withinDeadline', '1')
+    setParams(next)
+  }
+
+  const hasSpecActive = filters.hasSpec === true
+
+  const toggleHasSpec = () => {
+    const next = new URLSearchParams(params)
+    next.set('page', '1')
+    if (hasSpecActive) next.delete('hasSpec')
+    else next.set('hasSpec', '1')
     setParams(next)
   }
 
@@ -504,6 +518,15 @@ export function TendersPage() {
                 >
                   Within deadline
                 </button>
+                <button
+                  type="button"
+                  className={`chip-button${hasSpecActive ? ' active' : ''}`}
+                  aria-pressed={hasSpecActive}
+                  onClick={toggleHasSpec}
+                  title="Only tenders whose ტექნიკური attachment was parsed"
+                >
+                  Has spec text
+                </button>
                 {(
                   [
                     { id: 'under100k' as const, label: '< ₾100K' },
@@ -558,7 +581,9 @@ export function TendersPage() {
                       {visibleColumns.announced && <th>Announced</th>}
                       {visibleColumns.deadline && <th>Deadline</th>}
                       {visibleColumns.value && <th>Value</th>}
-                      {visibleColumns.bidders && <th>Bidders</th>}
+                      {visibleColumns.procurementType && <th>Procurement type</th>}
+                      {visibleColumns.donor && <th>Donor</th>}
+                      {visibleColumns.spec && <th>Spec text</th>}
                       {visibleColumns.status && <th>Status</th>}
                     </tr>
                   </thead>
@@ -588,7 +613,27 @@ export function TendersPage() {
                         {visibleColumns.value && (
                           <td style={{ whiteSpace: 'nowrap' }}>{formatGel(t.estimatedValue)}</td>
                         )}
-                        {visibleColumns.bidders && <td>{t.bidderCount}</td>}
+                        {visibleColumns.procurementType && (
+                          <td title={t.procurementType || undefined}>
+                            {shortProcurementType(t.procurementType)}
+                          </td>
+                        )}
+                        {visibleColumns.donor && <td>{t.donor?.trim() ? t.donor : 'N/A'}</td>}
+                        {visibleColumns.spec && (
+                          <td>
+                            {t.hasSpecText ? (
+                              <Link
+                                to={`/tenders/${t.appId}#spec`}
+                                className="status-pill info"
+                                title="ტექნიკური attachment parsed — open the extracted text"
+                              >
+                                SPEC
+                              </Link>
+                            ) : (
+                              <span className="muted">—</span>
+                            )}
+                          </td>
+                        )}
                         {visibleColumns.status && (
                           <td>
                             <StatusBadge status={t.status} />

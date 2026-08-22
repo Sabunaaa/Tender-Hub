@@ -1,11 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Play, Square } from 'lucide-react'
+import { Check, Play, RotateCcw, Save, SlidersHorizontal, Square } from 'lucide-react'
 import { api } from '../api'
 import { runsQueryOptions } from '../api/runsQuery'
 import { Link } from 'react-router-dom'
 import { Card, ErrorState, LoadingState, PageHeader } from '../components/ui'
 import { errorMessage } from '../lib/errors'
 import { formatDateTime } from '../lib/format'
+import { isSettingsSliceDirty, pickSettings, useSettingsDraft } from '../lib/useSettingsDraft'
+
+const SCRAPER_KEYS = [
+  'dailyLookbackDays',
+  'requestDelaySeconds',
+  'maxRequestsPerSecond',
+  'scrapeConcurrency',
+  'requestTimeoutSeconds',
+] as const
 
 function runStatusClass(status: string): string {
   switch (status) {
@@ -42,17 +51,135 @@ export function RunsPage() {
     },
   })
 
-  if (isLoading) return <LoadingState label="Loading scrape health…" />
+  const {
+    settingsQuery,
+    draft,
+    serverDraft,
+    patch,
+    reset,
+    saveMutation,
+    savedFlash,
+  } = useSettingsDraft()
+
+  const scraperDirty = Boolean(
+    draft && serverDraft && isSettingsSliceDirty(draft, serverDraft, SCRAPER_KEYS),
+  )
+  const saveScraper = () => {
+    if (!draft) return
+    saveMutation.mutate(pickSettings(draft, SCRAPER_KEYS))
+  }
+
+  if (isLoading) return <LoadingState label="Loading scraper…" />
   if (error || !data) return <ErrorState message={errorMessage(error, 'Failed to load runs')} />
 
   const active = data.activeRun
 
   return (
-    <div>
+    <div className={scraperDirty ? 'settings-page' : undefined}>
       <PageHeader
-        title="Scrape health"
-        subtitle="Daily job history and next scheduled run"
+        title="Scraper"
+        subtitle="Portal load, job history, and next scheduled run"
+        actions={
+          draft && scraperDirty ? (
+            <div className="settings-intro-actions">
+              <button type="button" className="secondary-button" disabled={saveMutation.isPending} onClick={reset}>
+                <RotateCcw size={15} /> Reset
+              </button>
+              <button type="button" className="primary-button" disabled={saveMutation.isPending} onClick={saveScraper}>
+                <Save size={15} />
+                {saveMutation.isPending ? 'Saving…' : 'Save changes'}
+              </button>
+            </div>
+          ) : undefined
+        }
       />
+
+      {settingsQuery.error && (
+        <ErrorState message={errorMessage(settingsQuery.error, 'Failed to load scraper settings')} />
+      )}
+      {saveMutation.isError && (
+        <ErrorState message={errorMessage(saveMutation.error, 'Could not save scraper settings')} />
+      )}
+      {savedFlash && !saveMutation.isError && (
+        <div className="alert-box settings-saved">
+          <Check size={14} /> Settings saved
+        </div>
+      )}
+
+      {draft && (
+        <section className="settings-grid" style={{ marginBottom: 18 }}>
+          <article className="settings-card" style={{ gridColumn: '1 / -1' }}>
+            <header>
+              <SlidersHorizontal size={18} />
+              <div>
+                <p className="eyebrow">Scraper</p>
+                <h3>How hard to hit the portal</h3>
+              </div>
+            </header>
+            <p className="muted">
+              These apply to the next scrape. Stay polite — the government server is small.
+            </p>
+            <label>
+              <span className="filter-label">Daily lookback (days)</span>
+              <input
+                type="number"
+                min={1}
+                max={30}
+                className="field-input"
+                value={draft.dailyLookbackDays}
+                onChange={(e) => patch({ dailyLookbackDays: Number(e.target.value) || 1 })}
+              />
+              <small>Each scheduled run re-checks this many trailing days for status changes.</small>
+            </label>
+            <label>
+              <span className="filter-label">Max requests per second · {draft.maxRequestsPerSecond}</span>
+              <input
+                type="range"
+                min={0.2}
+                max={5}
+                step={0.2}
+                value={draft.maxRequestsPerSecond}
+                onChange={(e) => patch({ maxRequestsPerSecond: Number(e.target.value) })}
+              />
+            </label>
+            <label>
+              <span className="filter-label">Delay between requests (s) · {draft.requestDelaySeconds}</span>
+              <input
+                type="range"
+                min={0.2}
+                max={5}
+                step={0.2}
+                value={draft.requestDelaySeconds}
+                onChange={(e) => patch({ requestDelaySeconds: Number(e.target.value) })}
+              />
+            </label>
+            <div className="two-col">
+              <label>
+                <span className="filter-label">Concurrency</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={8}
+                  className="field-input"
+                  value={draft.scrapeConcurrency}
+                  onChange={(e) => patch({ scrapeConcurrency: Number(e.target.value) || 1 })}
+                />
+              </label>
+              <label>
+                <span className="filter-label">Timeout (s)</span>
+                <input
+                  type="number"
+                  min={10}
+                  max={180}
+                  className="field-input"
+                  value={draft.requestTimeoutSeconds}
+                  onChange={(e) => patch({ requestTimeoutSeconds: Number(e.target.value) || 10 })}
+                />
+              </label>
+            </div>
+          </article>
+        </section>
+      )}
 
       {active && (
         <Card
@@ -182,6 +309,15 @@ export function RunsPage() {
           </table>
         </div>
       </Card>
+
+      {scraperDirty && (
+        <div className="settings-savebar">
+          <span>Unsaved scraper settings</span>
+          <button type="button" className="primary-button" disabled={saveMutation.isPending} onClick={saveScraper}>
+            <Save size={15} /> Save now
+          </button>
+        </div>
+      )}
     </div>
   )
 }

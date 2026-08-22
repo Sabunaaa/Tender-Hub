@@ -7,7 +7,7 @@ from typing import Any
 from .db import get_connection
 from .repository import now_iso
 
-# Huawei Enterprise ICT product lines used as engagement domains.
+# Huawei Enterprise ICT product lines used as engagement products.
 HUAWEI_ENTERPRISE_DOMAINS = (
     "Storage",
     "IdeaHub",
@@ -27,17 +27,18 @@ class EngagementError(ValueError):
     """User-facing engagement failure (unknown code, duplicate, missing row)."""
 
 
-def _normalize_domain(value: str | None) -> str:
+def _normalize_product(value: str | None) -> str:
     token = (value or "").strip()
     if not token:
         return ""
     for name in HUAWEI_ENTERPRISE_DOMAINS:
         if name.casefold() == token.casefold():
             return name
-    raise EngagementError(f"Unknown domain “{token}”.")
+    raise EngagementError(f"Unknown product “{token}”.")
 
 
 def _row(r) -> dict[str, Any]:
+    product = r["domain"] or ""
     return {
         "id": r["id"],
         "announcementNumber": r["announcement_number"],
@@ -45,12 +46,17 @@ def _row(r) -> dict[str, Any]:
         "engaged": bool(r["engaged"]),
         "accountManager": r["account_manager"] or "",
         "solutionManager": r["solution_manager"] or "",
-        "domain": r["domain"] or "",
+        "product": product,
+        "domain": product,
         "title": r["title"] or "",
         "buyer": r["buyer"] or "",
+        "procurementType": r["procurement_type"] or "",
+        "donor": (r["donor"] or "") if "donor" in r.keys() else "",
         "status": r["status"] or "",
+        "categoryCode": r["category_code"] or "",
         "categoryName": r["category_name"] or "",
         "announcementDate": r["announcement_date"],
+        "bidsAcceptedFrom": r["bids_accepted_from"],
         "bidDeadline": r["bid_deadline"],
         "estimatedValue": r["estimated_value"],
         "currency": r["currency"] or "GEL",
@@ -63,7 +69,8 @@ def _row(r) -> dict[str, Any]:
 _SELECT = """
     SELECT e.id, e.announcement_number, e.app_id, e.engaged, e.account_manager, e.solution_manager,
            e.domain, e.created_at, e.updated_at,
-           t.title, t.buyer, t.status, t.category_name, t.announcement_date, t.bid_deadline,
+           t.title, t.buyer, t.status, t.procurement_type, t.donor, t.category_code, t.category_name,
+           t.announcement_date, t.bids_accepted_from, t.bid_deadline,
            t.estimated_value, t.currency, t.bidder_count
     FROM engagements e
     LEFT JOIN tenders t ON t.app_id = e.app_id
@@ -139,9 +146,10 @@ def update_engagement(engagement_id: int, patch: dict[str, Any], db_path=None) -
         if "solutionManager" in patch:
             fields.append("solution_manager = ?")
             params.append((patch["solutionManager"] or "").strip()[:80])
-        if "domain" in patch:
+        if "product" in patch or "domain" in patch:
+            raw = patch["product"] if "product" in patch else patch["domain"]
             fields.append("domain = ?")
-            params.append(_normalize_domain(patch["domain"]))
+            params.append(_normalize_product(raw))
         if fields:
             fields.append("updated_at = ?")
             params.append(now_iso())

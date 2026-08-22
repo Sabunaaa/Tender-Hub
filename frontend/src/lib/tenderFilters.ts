@@ -78,6 +78,7 @@ export function filtersFromParams(
     deadlineFrom,
     deadlineTo,
     withinDeadline: params.get('withinDeadline') === '1' ? true : undefined,
+    hasSpec: params.get('hasSpec') === '1' ? true : undefined,
     amountFrom: parseOptionalNumber(params.get('amountFrom')),
     amountTo: parseOptionalNumber(params.get('amountTo')),
     bidderCountMin: parseOptionalNumber(params.get('biddersMin')),

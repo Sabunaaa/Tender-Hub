@@ -51,6 +51,7 @@ class ParsedTender:
     title: str = ""
     status: str = ""
     procurement_type: str = ""
+    donor: str = ""
     buyer: str = ""
     buyer_org_id: int | None = None
     category_code: str = ""
@@ -199,6 +200,7 @@ def parse_main_tab(html: str, app_id: int, key: str) -> ParsedTender:
     fields = _field_map(soup)
     tender = ParsedTender(app_id=app_id, key=key)
     tender.procurement_type = fields.get("Procurement type", "").strip()
+    tender.donor = (fields.get("Donor") or fields.get("დონორი") or "").strip()
     tender.announcement_number = (
         fields.get("Announcment number") or fields.get("Announcement number") or ""
     ).strip()

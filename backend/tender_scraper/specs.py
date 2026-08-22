@@ -16,7 +16,15 @@ MAX_FILE_BYTES = 15 * 1024 * 1024
 MAX_CHARS = 200_000
 SUPPORTED_EXT = {".pdf", ".xlsx", ".xls", ".docx"}
 
-_SPACE = re.compile(r"\s+")
+# Structure markers understood by the frontend spec panel. Spreadsheet rows keep
+# their cells so the panel can rebuild the table instead of showing a text wall.
+# Control characters, because real spec lines do start with things like "# ".
+FILE_PREFIX = "\x01"
+SHEET_PREFIX = "\x02"
+CELL_SEP = "\t"
+
+# Any whitespace except tab and newline, so cell and line boundaries survive.
+_INLINE_SPACE = re.compile(r"[^\S\t\n]+")
 
 
 def is_spec_filename(name: str | None) -> bool:
@@ -42,8 +50,26 @@ def spec_files(attachments: Iterable[dict]) -> list[dict]:
     return out
 
 
-def _clean(text: str) -> str:
-    return _SPACE.sub(" ", text).strip()[:MAX_CHARS]
+def _cell(value: object) -> str:
+    """One spreadsheet/table cell flattened to a single line."""
+    text = str(value).replace("\t", " ").replace("\n", " ")
+    return _INLINE_SPACE.sub(" ", text).strip()
+
+
+def _row(cells: list[str]) -> str:
+    """Tab-joined row, or "" when every cell is blank."""
+    while cells and not cells[-1]:
+        cells.pop()
+    return CELL_SEP.join(cells) if cells else ""
+
+
+def _paragraph(text: str) -> str:
+    return _INLINE_SPACE.sub(" ", text.replace("\t", " ")).strip()
+
+
+def _join(lines: Iterable[str]) -> str:
+    """Drop blank lines and collapse the result into one text block."""
+    return "\n".join(line for line in lines if line.strip())
 
 
 def extract_bytes(data: bytes, filename: str) -> str:
@@ -63,54 +89,72 @@ def _from_pdf(data: bytes) -> str:
     from pypdf import PdfReader
 
     reader = PdfReader(io.BytesIO(data))
-    parts: list[str] = []
+    lines: list[str] = []
     for page in reader.pages:
-        parts.append(page.extract_text() or "")
-    return _clean(" ".join(parts))
+        # Layout mode keeps each table row on one line; plain mode splits a row
+        # into one fragment per cell, which reads as noise. Layout mode gives up
+        # on pages with rotated text and returns nothing, so fall back per page.
+        try:
+            text = page.extract_text(extraction_mode="layout") or ""
+        except Exception:
+            text = ""
+        if not text.strip():
+            text = page.extract_text() or ""
+        for line in text.splitlines():
+            lines.append(_paragraph(line))
+    return _join(lines)
+
+
+def _sheet_lines(name: str, rows: Iterable[list[str]], multi_sheet: bool) -> list[str]:
+    body = [row for row in (_row(cells) for cells in rows) if row]
+    if not body:
+        return []
+    header = [f"{SHEET_PREFIX}{_paragraph(name)}"] if multi_sheet else []
+    return header + body
 
 
 def _from_xlsx(data: bytes) -> str:
     from openpyxl import load_workbook
 
     wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
-    parts: list[str] = []
+    lines: list[str] = []
     try:
-        for sheet in wb.worksheets:
-            for row in sheet.iter_rows(values_only=True):
-                for cell in row:
-                    if cell is None or cell == "":
-                        continue
-                    parts.append(str(cell))
+        sheets = wb.worksheets
+        for sheet in sheets:
+            rows = (
+                [_cell(c) if c is not None else "" for c in row]
+                for row in sheet.iter_rows(values_only=True)
+            )
+            lines.extend(_sheet_lines(sheet.title, rows, len(sheets) > 1))
     finally:
         wb.close()
-    return _clean(" ".join(parts))
+    return _join(lines)
 
 
 def _from_xls(data: bytes) -> str:
     import xlrd
 
     book = xlrd.open_workbook(file_contents=data)
-    parts: list[str] = []
-    for sheet in book.sheets():
-        for r in range(sheet.nrows):
-            for cell in sheet.row_values(r):
-                if cell is None or cell == "":
-                    continue
-                parts.append(str(cell))
-    return _clean(" ".join(parts))
+    lines: list[str] = []
+    sheets = book.sheets()
+    for sheet in sheets:
+        rows = (
+            [_cell(c) if c not in (None, "") else "" for c in sheet.row_values(r)]
+            for r in range(sheet.nrows)
+        )
+        lines.extend(_sheet_lines(sheet.name, rows, len(sheets) > 1))
+    return _join(lines)
 
 
 def _from_docx(data: bytes) -> str:
     import docx
 
     document = docx.Document(io.BytesIO(data))
-    parts = [p.text for p in document.paragraphs if p.text]
+    lines = [_paragraph(p.text) for p in document.paragraphs]
     for table in document.tables:
         for row in table.rows:
-            for cell in row.cells:
-                if cell.text:
-                    parts.append(cell.text)
-    return _clean(" ".join(parts))
+            lines.append(_row([_cell(c.text) for c in row.cells]))
+    return _join(lines)
 
 
 def extract_spec_text(client, attachments: Iterable[dict]) -> str:
@@ -135,5 +179,5 @@ def extract_spec_text(client, attachments: Iterable[dict]) -> str:
             log.warning("spec parse failed (%s): %s", att["name"], exc)
             continue
         if text:
-            chunks.append(text)
-    return _clean(" ".join(chunks))
+            chunks.append(f"{FILE_PREFIX}{_paragraph(att['name'])}\n{text}")
+    return "\n".join(chunks)[:MAX_CHARS]

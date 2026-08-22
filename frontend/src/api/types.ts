@@ -55,6 +55,7 @@ export interface TenderSummary {
   title: string
   status: string
   procurementType: string
+  donor: string
   buyer: string
   buyerOrgId?: number
   categoryCode: string
@@ -68,6 +69,8 @@ export interface TenderSummary {
   winner?: string | null
   contractStatus?: string | null
   sourceUrl: string
+  /** True when a ტექნიკური attachment was parsed into searchable text. */
+  hasSpecText: boolean
 }
 
 export interface TenderDetail extends TenderSummary {
@@ -104,6 +107,8 @@ export interface TenderFilters {
   deadlineTo?: string
   /** When true, only tenders whose bid deadline is today or later. */
   withinDeadline?: boolean
+  /** When true, only tenders with extracted ტექნიკური spec text. */
+  hasSpec?: boolean
   amountFrom?: number
   amountTo?: number
   bidderCountMin?: number
@@ -160,7 +165,7 @@ export interface ScrapeRun {
   startedAt: string
   finishedAt: string | null
   status: 'running' | 'success' | 'failed' | 'partial' | 'cancelled'
-  mode: 'daily' | 'backfill' | 'manual'
+  mode: 'daily' | 'backfill' | 'manual' | 'rescrape'
   categories: string[]
   tendersFound: number
   tendersUpserted: number
@@ -225,12 +230,16 @@ export interface Engagement {
   engaged: boolean
   accountManager: string
   solutionManager: string
-  domain: string
+  product: string
   title: string
   buyer: string
+  procurementType: string
+  donor: string
   status: string
+  categoryCode: string
   categoryName: string
   announcementDate: string | null
+  bidsAcceptedFrom: string | null
   bidDeadline: string | null
   estimatedValue: number | null
   currency: string
@@ -249,6 +258,7 @@ export interface DataSource {
   addTrackedCategory(categoryId: number): Promise<TrackedCategory>
   removeTrackedCategory(categoryId: number): Promise<void>
   triggerBackfill(categoryId: number, options?: { dateFrom?: string; days?: number }): Promise<ScrapeRun>
+  triggerRescrape(categoryId: number): Promise<ScrapeRun>
   getScrapeHealth(): Promise<ScrapeHealth>
   stopScrape(): Promise<{ ok: boolean; run: ScrapeRun | null }>
   resumeRun(runId: number): Promise<ScrapeRun>
@@ -259,7 +269,7 @@ export interface DataSource {
   addEngagement(announcementNumber: string): Promise<Engagement>
   updateEngagement(
     id: number,
-    patch: { engaged?: boolean; accountManager?: string; solutionManager?: string; domain?: string },
+    patch: { engaged?: boolean; accountManager?: string; solutionManager?: string; product?: string },
   ): Promise<Engagement>
   deleteEngagement(id: number): Promise<void>
 }

@@ -62,6 +62,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Download ტექნიკური attachments and store searchable text (existing tenders)",
     )
     p_specs.add_argument("--limit", type=int, default=None, help="Max tenders to process")
+    p_specs.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-parse every tender with a ტექნიკური attachment, not just the ones never attempted",
+    )
 
     args = parser.parse_args(argv)
     config.ensure_dirs()
@@ -138,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "extract-specs":
         init_db()
-        result = ScrapePipeline().extract_missing_specs(limit=args.limit)
+        result = ScrapePipeline().extract_missing_specs(limit=args.limit, force=args.force)
         print(
             f"Extracted spec text for {result['withText']} tenders "
             f"({result['empty']} with no usable text, {result['errors']} errors, "

@@ -76,14 +76,14 @@ function delay(ms = 180): Promise<void> {
 
 function toSummary(t: TenderDetail): TenderSummary {
   const {
-    appId, key, announcementNumber, title, status, procurementType, buyer, buyerOrgId,
+    appId, key, announcementNumber, title, status, procurementType, donor, buyer, buyerOrgId,
     categoryCode, categoryName, announcementDate, bidDeadline, bidsAcceptedFrom,
-    estimatedValue, currency, bidderCount, winner, contractStatus, sourceUrl,
+    estimatedValue, currency, bidderCount, winner, contractStatus, sourceUrl, hasSpecText,
   } = t
   return {
-    appId, key, announcementNumber, title, status, procurementType, buyer, buyerOrgId,
+    appId, key, announcementNumber, title, status, procurementType, donor, buyer, buyerOrgId,
     categoryCode, categoryName, announcementDate, bidDeadline, bidsAcceptedFrom,
-    estimatedValue, currency, bidderCount, winner, contractStatus, sourceUrl,
+    estimatedValue, currency, bidderCount, winner, contractStatus, sourceUrl, hasSpecText,
   }
 }
 
@@ -154,6 +154,9 @@ function filterTenders(filters: TenderFilters): TenderDetail[] {
   if (filters.withinDeadline) {
     const today = formatISO(new Date(), { representation: 'date' })
     items = items.filter((t) => t.bidDeadline && t.bidDeadline.slice(0, 10) >= today)
+  }
+  if (filters.hasSpec) {
+    items = items.filter((t) => t.hasSpecText)
   }
   const amountFrom = filters.amountFrom
   const amountTo = filters.amountTo
@@ -418,6 +421,12 @@ export const mockApi: DataSource = {
     return run
   },
 
+  async triggerRescrape(categoryId: number): Promise<ScrapeRun> {
+    const run = await mockApi.triggerBackfill(categoryId)
+    run.mode = 'rescrape'
+    return run
+  },
+
   async getScrapeHealth(): Promise<ScrapeHealth> {
     await delay(80)
     const active = MOCK_RUNS.find((r) => r.status === 'running') ?? null
@@ -539,12 +548,16 @@ export const mockApi: DataSource = {
       engaged: false,
       accountManager: '',
       solutionManager: '',
-      domain: '',
+      product: '',
       title: tender.title,
       buyer: tender.buyer,
+      procurementType: tender.procurementType,
+      donor: tender.donor || '',
       status: tender.status,
+      categoryCode: tender.categoryCode,
       categoryName: tender.categoryName,
       announcementDate: tender.announcementDate,
+      bidsAcceptedFrom: tender.bidsAcceptedFrom,
       bidDeadline: tender.bidDeadline,
       estimatedValue: tender.estimatedValue,
       currency: tender.currency,

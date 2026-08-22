@@ -27,6 +27,7 @@ def _row_to_summary(r) -> dict[str, Any]:
         "title": r["title"] or "",
         "status": r["status"] or "",
         "procurementType": r["procurement_type"] or "",
+        "donor": (r["donor"] or "") if "donor" in r.keys() else "",
         "buyer": r["buyer"] or "",
         "buyerOrgId": r["buyer_org_id"],
         "categoryCode": r["category_code"] or "",
@@ -40,6 +41,7 @@ def _row_to_summary(r) -> dict[str, Any]:
         "winner": r["winner"],
         "contractStatus": r["contract_status"],
         "sourceUrl": r["source_url"] or "",
+        "hasSpecText": bool((r["spec_text"] or "").strip()) if "spec_text" in r.keys() else False,
     }
 
 
@@ -114,6 +116,8 @@ def list_tenders(filters: dict[str, Any], db_path=None) -> dict[str, Any]:
     if filters.get("amountTo") is not None:
         clauses.append("estimated_value <= ?")
         params.append(filters["amountTo"])
+    if filters.get("hasSpec"):
+        clauses.append("spec_text IS NOT NULL AND trim(spec_text) != ''")
     if filters.get("bidderCountMin") is not None:
         clauses.append("bidder_count >= ?")
         params.append(filters["bidderCountMin"])

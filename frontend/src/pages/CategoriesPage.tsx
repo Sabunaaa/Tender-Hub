@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { format, subDays, subYears } from 'date-fns'
-import { Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { Plus, RefreshCw, RotateCcw, Trash2 } from 'lucide-react'
 import { api } from '../api'
 import type { TrackedCategory } from '../api'
 import { Card, ErrorState, LoadingState, PageHeader } from '../components/ui'
@@ -62,6 +62,15 @@ export function CategoriesPage() {
     },
   })
 
+  const rescrapeMutation = useMutation({
+    mutationFn: (id: number) => api.triggerRescrape(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tracked'] })
+      qc.invalidateQueries({ queryKey: ['runs'] })
+      void qc.refetchQueries({ queryKey: ['runs'] })
+    },
+  })
+
   const trackedIds = useMemo(
     () => new Set((trackedQuery.data ?? []).map((c) => c.id)),
     [trackedQuery.data],
@@ -77,6 +86,7 @@ export function CategoriesPage() {
 
   const today = format(new Date(), 'yyyy-MM-dd')
   const canStartBackfill = Boolean(backfillFrom) && backfillFrom <= today
+  const scrapeBusy = backfillMutation.isPending || rescrapeMutation.isPending
 
   return (
     <div>
@@ -130,6 +140,11 @@ export function CategoriesPage() {
 
       {trackedQuery.isLoading && <LoadingState />}
       {trackedQuery.error && <ErrorState message={errorMessage(trackedQuery.error, 'Failed to load tracked categories')} />}
+      {rescrapeMutation.isError && (
+        <div style={{ marginBottom: 12, fontSize: 12, color: 'var(--danger)' }}>
+          {errorMessage(rescrapeMutation.error, 'Failed to start rescrape')}
+        </div>
+      )}
 
       {trackedQuery.data && (
         <div className="category-grid">
@@ -163,11 +178,28 @@ export function CategoriesPage() {
                     setBackfillFrom(defaultBackfillFrom())
                     setBackfillTarget(c)
                   }}
-                  disabled={backfillMutation.isPending}
+                  disabled={scrapeBusy}
                   className="secondary-button"
                   style={{ flex: 1 }}
                 >
                   <RefreshCw size={16} /> Backfill
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (
+                      confirm(
+                        `Rescrape every tender in ${c.code} from scratch? Existing tenders will be fetched again, not skipped. This can take a long time.`,
+                      )
+                    ) {
+                      rescrapeMutation.mutate(c.id)
+                    }
+                  }}
+                  disabled={scrapeBusy}
+                  className="secondary-button"
+                  style={{ flex: 1 }}
+                >
+                  <RotateCcw size={16} /> {rescrapeMutation.isPending ? 'Starting…' : 'Rescrape'}
                 </button>
                 <button
                   type="button"

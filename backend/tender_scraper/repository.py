@@ -9,6 +9,7 @@ from typing import Any
 from . import config
 from .db import connect, get_connection, init_db
 from .parsers import ParsedTender
+from .specs import SPEC_MARKER
 
 
 # Detail tabs whose child rows are owned by a scrape: app_main, app_docs,
@@ -56,14 +57,14 @@ class Repository:
             conn.execute(
                 """
                 INSERT INTO tenders (
-                    app_id, key, announcement_number, title, status, procurement_type,
+                    app_id, key, announcement_number, title, status, procurement_type, donor,
                     buyer, buyer_org_id, category_code, category_name, announcement_date,
                     bid_deadline, bids_accepted_from, estimated_value, currency, bidder_count,
                     winner, contract_status, source_url, description, supply_period, vat_terms,
                     guarantee_amount, guarantee_validity, bid_reduction_step, amount_or_volume,
                     additional_info, spec_text, scraped_at, updated_at
                 ) VALUES (
-                    ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+                    ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
                 )
                 ON CONFLICT(app_id) DO UPDATE SET
                     key=excluded.key,
@@ -71,6 +72,7 @@ class Repository:
                     title=excluded.title,
                     status=excluded.status,
                     procurement_type=excluded.procurement_type,
+                    donor=excluded.donor,
                     buyer=excluded.buyer,
                     buyer_org_id=excluded.buyer_org_id,
                     category_code=COALESCE(excluded.category_code, tenders.category_code),
@@ -98,7 +100,7 @@ class Repository:
                 """,
                 (
                     tender.app_id, tender.key, tender.announcement_number, tender.title, tender.status,
-                    tender.procurement_type, tender.buyer, tender.buyer_org_id, tender.category_code,
+                    tender.procurement_type, tender.donor, tender.buyer, tender.buyer_org_id, tender.category_code,
                     tender.category_name, tender.announcement_date, tender.bid_deadline,
                     tender.bids_accepted_from, tender.estimated_value, tender.currency, tender.bidder_count,
                     tender.winner, tender.contract_status, tender.source_url, tender.description,
@@ -238,6 +240,20 @@ class Repository:
             ).fetchall()
         return [{"name": r["name"] or "", "url": r["url"] or ""} for r in rows]
 
+    def app_ids_with_spec_attachments(self, limit: int | None = None) -> list[int]:
+        """Tenders that have a ტექნიკური attachment, whether or not it was parsed before."""
+        sql = """
+            SELECT DISTINCT app_id FROM tender_attachments
+            WHERE kind IN ('doc', 'section') AND name LIKE ?
+            ORDER BY app_id
+        """
+        params: list[Any] = [f"%{SPEC_MARKER}%"]
+        if limit:
+            sql += " LIMIT ?"
+            params.append(limit)
+        with get_connection(self.db_path) as conn:
+            return [r["app_id"] for r in conn.execute(sql, params).fetchall()]
+
     def save_spec_text(self, app_id: int, text: str) -> None:
         with get_connection(self.db_path) as conn:
             conn.execute("UPDATE tenders SET spec_text = ? WHERE app_id = ?", (text, app_id))
@@ -265,6 +281,21 @@ class Repository:
                 "INSERT INTO raw_html (app_id, kind, html) VALUES (?,?,?)",
                 (app_id, kind, html),
             )
+
+    def earliest_announcement_date(self, category_code: str) -> str | None:
+        with get_connection(self.db_path) as conn:
+            row = conn.execute(
+                """
+                SELECT MIN(announcement_date) AS d
+                FROM tenders
+                WHERE category_code = ?
+                  AND announcement_date IS NOT NULL
+                  AND announcement_date != ''
+                """,
+                (category_code,),
+            ).fetchone()
+        value = row["d"] if row else None
+        return str(value)[:10] if value else None
 
     def list_tracked(self, enabled_only: bool = False) -> list[dict[str, Any]]:
         with get_connection(self.db_path) as conn:

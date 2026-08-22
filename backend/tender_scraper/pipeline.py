@@ -332,9 +332,17 @@ class ScrapePipeline:
             finally:
                 stop_flag.set()
 
-    def extract_missing_specs(self, limit: int | None = None) -> dict[str, int]:
-        """Backfill spec_text for tenders already in the database (no full scrape)."""
-        missing = self.repo.app_ids_missing_spec(limit=limit)
+    def extract_missing_specs(self, limit: int | None = None, force: bool = False) -> dict[str, int]:
+        """Backfill spec_text for tenders already in the database (no full scrape).
+
+        ``force`` re-parses every tender that has a ტექნიკური attachment, which is
+        what you want after changing the extraction format.
+        """
+        missing = (
+            self.repo.app_ids_with_spec_attachments(limit=limit)
+            if force
+            else self.repo.app_ids_missing_spec(limit=limit)
+        )
         with_text = 0
         empty = 0
         errors = 0
@@ -629,6 +637,7 @@ def run_backfill(
     date_to: date | None = None,
     run_id: int | None = None,
     max_pages: int | None = None,
+    force_refresh: bool = False,
 ) -> dict:
     today = date_to or date.today()
     if date_from is None:
@@ -639,8 +648,9 @@ def run_backfill(
     return ScrapePipeline().run(
         date_from=date_from,
         date_to=today,
-        mode="backfill",
+        mode="backfill" if not force_refresh else "rescrape",
         category_ids=category_ids,
         max_pages=max_pages,
         run_id=run_id,
+        force_refresh=force_refresh,
     )

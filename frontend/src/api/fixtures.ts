@@ -191,6 +191,8 @@ function buildTender(index: number, categoryCode: string, announcement: Date): T
     }
   })
 
+  const hasSpecText = rng() > 0.4
+
   return {
     appId,
     key: `mockkey${appId}`,
@@ -198,6 +200,7 @@ function buildTender(index: number, categoryCode: string, announcement: Date): T
     title,
     status,
     procurementType: pick(rng, PROCUREMENT_TYPES),
+    donor: rng() > 0.92 ? 'The World Bank' : '',
     buyer,
     buyerOrgId: 1000 + (index % 50),
     categoryCode,
@@ -211,6 +214,7 @@ function buildTender(index: number, categoryCode: string, announcement: Date): T
     winner,
     contractStatus: status === 'Contract awarded' ? 'Current contract' : null,
     sourceUrl: `https://tenders.procurement.gov.ge/public/?go=${appId}&lang=en`,
+    hasSpecText,
     description: title,
     supplyPeriod: `ხელშეკრულების გაფორმებიდან ${30 + Math.floor(rng() * 120)} კალენდარული დღე`,
     vatTerms: rng() > 0.3 ? 'Including VAT' : 'Excluding VAT',
@@ -219,8 +223,9 @@ function buildTender(index: number, categoryCode: string, announcement: Date): T
     bidReductionStep: Math.round(value * 0.01),
     amountOrVolume: 'იხილეთ სატენდერო დოკუმენტაცია',
     additionalInfo: null,
-    specText:
-      'ტექნიკური დავალება: ქსელური კომუტატორი, არანაკლებ 24 პორტი, PoE, მართვადი. მარშრუტიზატორი, firewall/NGFW.',
+    specText: hasSpecText
+      ? 'ტექნიკური დავალება: ქსელური კომუტატორი, არანაკლებ 24 პორტი, PoE, მართვადი. მარშრუტიზატორი, firewall/NGFW.'
+      : '',
     cpvCodes,
     documentSections: [
       {

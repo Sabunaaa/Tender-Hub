@@ -81,7 +81,7 @@ export function DashboardPage() {
             <Link className="primary-button" to="/tenders">
               <FileSearch size={17} /> Explore tenders
             </Link>
-            <Link className="secondary-button" to="/categories">
+            <Link className="secondary-button" to="/settings/categories">
               Manage categories
             </Link>
           </div>
@@ -149,7 +149,7 @@ export function DashboardPage() {
                     <Sparkles size={11} /> {newSince.count} new
                   </span>
                 )}
-                <Link className="text-button" to="/runs">
+                <Link className="text-button" to="/settings/scraper">
                   {scrapedAgo ? `Scraped ${scrapedAgo}` : 'Scrape history'}
                 </Link>
               </div>

@@ -1,11 +1,12 @@
-import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlarmClock, Check, Play, RotateCcw, Save, SlidersHorizontal, Users } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { AlarmClock, Check, Play, RotateCcw, Save } from 'lucide-react'
 import { api, isMockMode } from '../api'
-import type { AppSettings, SettingsUpdate, Weekday } from '../api'
+import type { Weekday } from '../api'
 import { ErrorState, LoadingState } from '../components/ui'
 import { errorMessage } from '../lib/errors'
 import { formatDateTime } from '../lib/format'
+import { isSettingsSliceDirty, pickSettings, useSettingsDraft } from '../lib/useSettingsDraft'
 
 const WEEKDAYS: { id: Weekday; label: string; short: string }[] = [
   { id: 'mon', label: 'Monday', short: 'Mon' },
@@ -19,28 +20,13 @@ const WEEKDAYS: { id: Weekday; label: string; short: string }[] = [
 
 const TIME_PRESETS = ['06:00', '08:00', '12:00', '18:00', '21:00'] as const
 
-type Draft = Omit<AppSettings, 'nextScheduledAt' | 'taskStatus'>
-
-function toDraft(settings: AppSettings): Draft {
-  return {
-    scheduleEnabled: settings.scheduleEnabled,
-    scheduleTime: settings.scheduleTime,
-    scheduleDays: [...settings.scheduleDays],
-    dailyLookbackDays: settings.dailyLookbackDays,
-    requestDelaySeconds: settings.requestDelaySeconds,
-    maxRequestsPerSecond: settings.maxRequestsPerSecond,
-    scrapeConcurrency: settings.scrapeConcurrency,
-    requestTimeoutSeconds: settings.requestTimeoutSeconds,
-    closingSoonDays: settings.closingSoonDays,
-    defaultPageSize: settings.defaultPageSize,
-    accountManagers: [...(settings.accountManagers ?? [])],
-    solutionManagers: [...(settings.solutionManagers ?? [])],
-  }
-}
-
-function sameDraft(a: Draft, b: Draft): boolean {
-  return JSON.stringify(a) === JSON.stringify(b)
-}
+const GENERAL_KEYS = [
+  'scheduleEnabled',
+  'scheduleTime',
+  'scheduleDays',
+  'closingSoonDays',
+  'defaultPageSize',
+] as const
 
 function describeDays(days: Weekday[]): string {
   if (days.length === 7) return 'Every day'
@@ -52,93 +38,18 @@ function describeDays(days: Weekday[]): string {
     .join(', ')
 }
 
-function PeopleList({
-  label,
-  names,
-  onChange,
-}: {
-  label: string
-  names: string[]
-  onChange: (names: string[]) => void
-}) {
-  const [incoming, setIncoming] = useState('')
-  const add = () => {
-    const name = incoming.trim()
-    if (!name) return
-    if (names.some((item) => item.toLowerCase() === name.toLowerCase())) {
-      setIncoming('')
-      return
-    }
-    onChange([...names, name])
-    setIncoming('')
-  }
-  return (
-    <div className="people-list">
-      <span className="filter-label">{label}</span>
-      {names.map((name, index) => (
-        <div key={`p-${index}`} className="people-row">
-          <input
-            className="field-input"
-            value={name}
-            onChange={(e) => {
-              const next = [...names]
-              next[index] = e.target.value
-              onChange(next)
-            }}
-          />
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => onChange(names.filter((_, i) => i !== index))}
-          >
-            Remove
-          </button>
-        </div>
-      ))}
-      <div className="people-row">
-        <input
-          className="field-input"
-          placeholder="Add a name"
-          value={incoming}
-          onChange={(e) => setIncoming(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key !== 'Enter') return
-            e.preventDefault()
-            add()
-          }}
-        />
-        <button type="button" className="secondary-button" onClick={add}>
-          Add
-        </button>
-      </div>
-    </div>
-  )
-}
-
 export function SettingsPage() {
   const qc = useQueryClient()
-  const settingsQuery = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => api.getSettings(),
-  })
-  const [draftOverride, setDraftOverride] = useState<Draft | null>(null)
-  const [savedFlash, setSavedFlash] = useState(false)
-  const serverDraft = settingsQuery.data ? toDraft(settingsQuery.data) : null
-  const draft = draftOverride ?? serverDraft
-
-  const dirty = Boolean(draft && serverDraft && !sameDraft(draft, serverDraft))
-
-  const saveMutation = useMutation({
-    mutationFn: (patch: SettingsUpdate) => api.updateSettings(patch),
-    onSuccess: (saved) => {
-      qc.setQueryData(['settings'], saved)
-      qc.invalidateQueries({ queryKey: ['runs'] })
-      qc.invalidateQueries({ queryKey: ['stats'] })
-      setDraftOverride(null)
-      setSavedFlash(true)
-      window.setTimeout(() => setSavedFlash(false), 2400)
-    },
-  })
+  const {
+    settingsQuery,
+    draft,
+    serverDraft,
+    saved,
+    patch,
+    reset,
+    saveMutation,
+    savedFlash,
+  } = useSettingsDraft()
 
   const runNowMutation = useMutation({
     mutationFn: () => api.triggerDailyScrape(),
@@ -147,13 +58,6 @@ export function SettingsPage() {
       qc.invalidateQueries({ queryKey: ['stats'] })
     },
   })
-
-  const patch = (partial: Partial<Draft>) => {
-    setDraftOverride((current) => {
-      const base = current ?? serverDraft
-      return base ? { ...base, ...partial } : current
-    })
-  }
 
   const toggleDay = (day: Weekday) => {
     if (!draft) return
@@ -167,37 +71,38 @@ export function SettingsPage() {
   if (settingsQuery.error && !draft) {
     return <ErrorState message={errorMessage(settingsQuery.error, 'Failed to load settings')} />
   }
-  if (!draft) return <LoadingState label="Loading settings…" />
+  if (!draft || !serverDraft) return <LoadingState label="Loading settings…" />
 
+  const dirty = isSettingsSliceDirty(draft, serverDraft, GENERAL_KEYS)
+  const save = () => saveMutation.mutate(pickSettings(draft, GENERAL_KEYS))
   const [hour = '06', minute = '00'] = draft.scheduleTime.split(':')
   const clock = { hour, minute }
-
-  const saved = settingsQuery.data
   const canEnable = draft.scheduleDays.length > 0
   const task = saved?.taskStatus
+  const saveDisabled = saveMutation.isPending || (draft.scheduleEnabled && !canEnable)
 
   return (
     <div className="settings-page">
       <div className="settings-intro">
         <div>
           <p className="eyebrow">Control room</p>
-          <h2>Settings</h2>
-          <p>Pick the scrape clock, tune how hard we hit the portal, and decide how the dashboard behaves.</p>
+          <h2>General</h2>
+          <p>Pick the scrape clock and decide how the dashboard behaves.</p>
         </div>
         <div className="settings-intro-actions">
           <button
             type="button"
             className="secondary-button"
             disabled={!dirty || saveMutation.isPending}
-            onClick={() => setDraftOverride(null)}
+            onClick={reset}
           >
             <RotateCcw size={15} /> Reset
           </button>
           <button
             type="button"
             className="primary-button"
-            disabled={!dirty || saveMutation.isPending || (draft.scheduleEnabled && !canEnable)}
-            onClick={() => saveMutation.mutate(draft)}
+            disabled={!dirty || saveDisabled}
+            onClick={save}
           >
             <Save size={15} />
             {saveMutation.isPending ? 'Saving…' : 'Save changes'}
@@ -340,84 +245,16 @@ export function SettingsPage() {
             <p className="settings-warning">{errorMessage(runNowMutation.error, 'Could not start scrape')}</p>
           )}
           {runNowMutation.isSuccess && (
-            <p className="settings-ok">Daily scrape started. Watch progress on Scrape Health.</p>
+            <p className="settings-ok">
+              Daily scrape started.{' '}
+              <Link to="/settings/scraper">Watch progress</Link>
+            </p>
           )}
         </div>
       </section>
 
       <section className="settings-grid">
-        <article className="settings-card">
-          <header>
-            <SlidersHorizontal size={18} />
-            <div>
-              <p className="eyebrow">Scraper</p>
-              <h3>How hard to hit the portal</h3>
-            </div>
-          </header>
-          <p className="muted">
-            These apply to the next scrape. Stay polite — the government server is small.
-          </p>
-          <label>
-            <span className="filter-label">Daily lookback (days)</span>
-            <input
-              type="number"
-              min={1}
-              max={30}
-              className="field-input"
-              value={draft.dailyLookbackDays}
-              onChange={(e) => patch({ dailyLookbackDays: Number(e.target.value) || 1 })}
-            />
-            <small>Each scheduled run re-checks this many trailing days for status changes.</small>
-          </label>
-          <label>
-            <span className="filter-label">Max requests per second · {draft.maxRequestsPerSecond}</span>
-            <input
-              type="range"
-              min={0.2}
-              max={5}
-              step={0.2}
-              value={draft.maxRequestsPerSecond}
-              onChange={(e) => patch({ maxRequestsPerSecond: Number(e.target.value) })}
-            />
-          </label>
-          <label>
-            <span className="filter-label">Delay between requests (s) · {draft.requestDelaySeconds}</span>
-            <input
-              type="range"
-              min={0.2}
-              max={5}
-              step={0.2}
-              value={draft.requestDelaySeconds}
-              onChange={(e) => patch({ requestDelaySeconds: Number(e.target.value) })}
-            />
-          </label>
-          <div className="two-col">
-            <label>
-              <span className="filter-label">Concurrency</span>
-              <input
-                type="number"
-                min={1}
-                max={8}
-                className="field-input"
-                value={draft.scrapeConcurrency}
-                onChange={(e) => patch({ scrapeConcurrency: Number(e.target.value) || 1 })}
-              />
-            </label>
-            <label>
-              <span className="filter-label">Timeout (s)</span>
-              <input
-                type="number"
-                min={10}
-                max={180}
-                className="field-input"
-                value={draft.requestTimeoutSeconds}
-                onChange={(e) => patch({ requestTimeoutSeconds: Number(e.target.value) || 10 })}
-              />
-            </label>
-          </div>
-        </article>
-
-        <article className="settings-card">
+        <article className="settings-card" style={{ gridColumn: '1 / -1' }}>
           <header>
             <AlarmClock size={18} />
             <div>
@@ -426,58 +263,33 @@ export function SettingsPage() {
             </div>
           </header>
           <p className="muted">These change the dashboard “closing soon” window and the explorer page size.</p>
-          <label>
-            <span className="filter-label">Closing-soon window (days)</span>
-            <input
-              type="number"
-              min={1}
-              max={30}
-              className="field-input"
-              value={draft.closingSoonDays}
-              onChange={(e) => patch({ closingSoonDays: Number(e.target.value) || 1 })}
-            />
-            <small>Used for the dashboard KPI, chart of upcoming deadlines, and closing-soon table.</small>
-          </label>
-          <label>
-            <span className="filter-label">Default tenders per page</span>
-            <select
-              className="field-input"
-              value={draft.defaultPageSize}
-              onChange={(e) => patch({ defaultPageSize: Number(e.target.value) })}
-            >
-              {[10, 20, 30, 50, 100].map((size) => (
-                <option key={size} value={size}>
-                  {size}
-                </option>
-              ))}
-            </select>
-          </label>
-        </article>
-      </section>
-
-      <section className="settings-grid">
-        <article className="settings-card" style={{ gridColumn: '1 / -1' }}>
-          <header>
-            <Users size={18} />
-            <div>
-              <p className="eyebrow">Engagement</p>
-              <h3>Account and Solution Managers</h3>
-            </div>
-          </header>
-          <p className="muted">
-            These names appear as dropdowns on the Engagement page. Add, edit, or remove them here, then save.
-          </p>
           <div className="two-col">
-            <PeopleList
-              label="Account managers"
-              names={draft.accountManagers}
-              onChange={(accountManagers) => patch({ accountManagers })}
-            />
-            <PeopleList
-              label="Solution managers"
-              names={draft.solutionManagers}
-              onChange={(solutionManagers) => patch({ solutionManagers })}
-            />
+            <label>
+              <span className="filter-label">Closing-soon window (days)</span>
+              <input
+                type="number"
+                min={1}
+                max={30}
+                className="field-input"
+                value={draft.closingSoonDays}
+                onChange={(e) => patch({ closingSoonDays: Number(e.target.value) || 1 })}
+              />
+              <small>Used for the dashboard KPI, chart of upcoming deadlines, and closing-soon table.</small>
+            </label>
+            <label>
+              <span className="filter-label">Default tenders per page</span>
+              <select
+                className="field-input"
+                value={draft.defaultPageSize}
+                onChange={(e) => patch({ defaultPageSize: Number(e.target.value) })}
+              >
+                {[10, 20, 30, 50, 100].map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         </article>
       </section>
@@ -485,12 +297,7 @@ export function SettingsPage() {
       {dirty && (
         <div className="settings-savebar">
           <span>Unsaved schedule and preference changes</span>
-          <button
-            type="button"
-            className="primary-button"
-            disabled={saveMutation.isPending || (draft.scheduleEnabled && !canEnable)}
-            onClick={() => saveMutation.mutate(draft)}
-          >
+          <button type="button" className="primary-button" disabled={saveDisabled} onClick={save}>
             <Save size={15} /> Save now
           </button>
         </div>

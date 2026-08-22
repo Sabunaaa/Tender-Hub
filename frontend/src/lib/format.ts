@@ -38,6 +38,11 @@ export function formatDateTime(value: string | null | undefined): string {
   }).format(d)
 }
 
+export function formatPortalDate(value: string | null | undefined): string {
+  if (!value) return '—'
+  return /T\d{2}:\d{2}/.test(value) ? formatDateTime(value) : formatDate(value)
+}
+
 export function statusColor(status: string): string {
   const map: Record<string, string> = {
     'Tender announced': 'info',
@@ -62,6 +67,17 @@ export function categoryColor(code: string): string {
     '32500000': '#7a52c7',
   }
   return map[code] ?? '#667085'
+}
+
+export function shortProcurementType(value: string | null | undefined): string {
+  if (!value) return '—'
+  const code = value.match(/\(([^)]+)\)\s*$/)
+  return code?.[1] ?? value
+}
+
+export function formatProcurementType(value: string | null | undefined): string {
+  if (!value) return '—'
+  return value.replace(/\s*\(([^)]+)\)\s*$/, ' ($1)')
 }
 
 export function shortCategory(name: string): string {

@@ -63,6 +63,14 @@ def test_parse_main_tab_701304(samples):
     assert tender.bid_deadline == "2026-09-01T12:30:00"
     assert tender.cpv_codes == [{"code": "98390000", "name": "Other services"}]
     assert "თბილისობა 2026" in (tender.title or "")
+    assert tender.donor == ""
+
+
+def test_parse_main_tab_extracts_world_bank_donor(samples):
+    tender = parse_main_tab(_html(samples, "app_main_699822.html"), 699822, "KEY")
+    assert tender.announcement_number == "DEP260000036"
+    assert tender.donor == "The World Bank"
+    assert "DEP" in tender.procurement_type
 
 
 def test_parse_main_tab_700990(samples):

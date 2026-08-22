@@ -1,9 +1,7 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
-  Activity,
   ChevronLeft,
   ChevronRight,
-  FolderTree,
   Handshake,
   LayoutDashboard,
   Menu,
@@ -11,29 +9,24 @@ import {
   Settings,
   X,
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { isMockMode } from '../api'
 import { runsQueryOptions } from '../api/runsQuery'
 import { cn } from '../lib/format'
+import { SETTINGS_TABS } from '../lib/settingsNav'
 
 const nav = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true, eyebrow: 'Overview', title: 'Tender intelligence' },
   { to: '/tenders', label: 'Tenders', icon: Search, eyebrow: 'Explorer', title: 'Procurement tenders' },
-  { to: '/categories', label: 'Categories', icon: FolderTree, eyebrow: 'Tracking', title: 'CPV categories' },
-  { to: '/runs', label: 'Scrape Health', icon: Activity, eyebrow: 'Operations', title: 'Scrape health' },
   { to: '/engagement', label: 'Engagement', icon: Handshake, eyebrow: 'Pipeline', title: 'Engagement' },
 ]
 
-const settingsNav = {
-  to: '/settings',
-  label: 'Settings',
-  icon: Settings,
-  eyebrow: 'Workspace',
-  title: 'Settings',
+function pathMatches(item: { to: string; end?: boolean }, pathname: string) {
+  return item.end ? pathname === item.to : pathname.startsWith(item.to)
 }
 
-function ScrapeStatusBadge() {
+function ScrapeStatusBadge({ onNavigate }: { onNavigate?: () => void }) {
   const { data } = useQuery(runsQueryOptions)
 
   const active = data?.activeRun ?? null
@@ -59,7 +52,7 @@ function ScrapeStatusBadge() {
     tone = 'running'
   } else if (lastFailed) {
     title = 'Last scrape failed'
-    subtitle = isMockMode ? 'Mock data mode' : 'SQLite · Check Scrape Health'
+    subtitle = isMockMode ? 'Mock data mode' : 'SQLite · Check Scraper'
     tone = 'failed'
   } else if (lastPartial) {
     title = 'Last scrape partial'
@@ -72,7 +65,11 @@ function ScrapeStatusBadge() {
   }
 
   return (
-    <div className={cn('local-badge', `tone-${tone}`)}>
+    <NavLink
+      to="/settings/scraper"
+      className={() => cn('local-badge', `tone-${tone}`)}
+      onClick={onNavigate}
+    >
       <span className={cn('pulse-dot', tone === 'running' && 'is-pulsing')} />
       <div className="local-badge-body">
         <strong>{title}</strong>
@@ -96,6 +93,63 @@ function ScrapeStatusBadge() {
           </>
         )}
       </div>
+    </NavLink>
+  )
+}
+
+function SettingsNav({
+  collapsed,
+  onNavigate,
+}: {
+  collapsed: boolean
+  onNavigate: () => void
+}) {
+  const location = useLocation()
+  const inSettings = location.pathname.startsWith('/settings')
+  const [open, setOpen] = useState(inSettings && !collapsed)
+
+  useEffect(() => {
+    if (collapsed) {
+      setOpen(false)
+      return
+    }
+    if (inSettings) setOpen(true)
+  }, [collapsed, inSettings])
+
+  return (
+    <div className={cn('nav-group', open && 'is-open', inSettings && 'is-current')}>
+      <button
+        type="button"
+        className={cn('nav-item', (open || inSettings) && 'active')}
+        title="Settings"
+        aria-expanded={open}
+        aria-controls="settings-submenu"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <Settings size={19} />
+        <span>Settings</span>
+        <ChevronRight className="nav-caret" size={14} />
+      </button>
+      {open && (
+        <div id="settings-submenu" className="nav-sub" role="group" aria-label="Settings sections">
+          {SETTINGS_TABS.map((tab) => (
+            <NavLink
+              key={tab.to}
+              to={tab.to}
+              end={'end' in tab && tab.end}
+              title={tab.label}
+              onClick={() => {
+                onNavigate()
+                if (collapsed) setOpen(false)
+              }}
+              className={({ isActive }) => cn('nav-subitem', isActive && 'active')}
+            >
+              <tab.icon size={15} />
+              <span>{tab.label}</span>
+            </NavLink>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -106,9 +160,10 @@ export function AppLayout() {
   const [mobileOpen, setMobileOpen] = useState(false)
 
   const current = useMemo(() => {
-    const match = [...nav, settingsNav].find((item) =>
-      'end' in item && item.end ? location.pathname === '/' : location.pathname.startsWith(item.to),
-    )
+    const settingsMatch = [...SETTINGS_TABS]
+      .sort((a, b) => b.to.length - a.to.length)
+      .find((item) => pathMatches(item, location.pathname))
+    const match = settingsMatch ?? nav.find((item) => pathMatches(item, location.pathname))
     return (
       match ?? {
         to: '/',
@@ -178,16 +233,8 @@ export function AppLayout() {
         </nav>
 
         <div className="sidebar-bottom">
-          <NavLink
-            to={settingsNav.to}
-            title={settingsNav.label}
-            onClick={() => setMobileOpen(false)}
-            className={({ isActive }) => cn('nav-item', isActive && 'active')}
-          >
-            <settingsNav.icon size={19} />
-            <span>{settingsNav.label}</span>
-          </NavLink>
-          {!collapsed && <ScrapeStatusBadge />}
+          <SettingsNav collapsed={collapsed} onNavigate={() => setMobileOpen(false)} />
+          {!collapsed && <ScrapeStatusBadge onNavigate={() => setMobileOpen(false)} />}
         </div>
       </aside>
 

@@ -154,6 +154,7 @@ def tenders(
     deadlineFrom: str | None = None,
     deadlineTo: str | None = None,
     withinDeadline: bool = False,
+    hasSpec: bool = False,
     amountFrom: float | None = None,
     amountTo: float | None = None,
     bidderCountMin: int | None = None,
@@ -177,6 +178,7 @@ def tenders(
             "deadlineFrom": deadlineFrom,
             "deadlineTo": deadlineTo,
             "withinDeadline": withinDeadline,
+            "hasSpec": hasSpec,
             "amountFrom": amountFrom,
             "amountTo": amountTo,
             "bidderCountMin": bidderCountMin,
@@ -205,6 +207,7 @@ class UpdateEngagementBody(BaseModel):
     engaged: bool | None = None
     accountManager: str | None = None
     solutionManager: str | None = None
+    product: str | None = None
     domain: str | None = None
 
 
@@ -274,8 +277,15 @@ def _run_backfill_job(
     date_from: date | None = None,
     days: int | None = None,
     run_id: int | None = None,
+    force_refresh: bool = False,
 ) -> None:
-    run_backfill(days=days, category_ids=[category_id], date_from=date_from, run_id=run_id)
+    run_backfill(
+        days=days,
+        category_ids=[category_id],
+        date_from=date_from,
+        run_id=run_id,
+        force_refresh=force_refresh,
+    )
 
 
 @app.post("/api/categories/{category_id}/backfill")
@@ -316,6 +326,40 @@ def backfill_category(category_id: int, background: BackgroundTasks, body: Backf
     if categories:
         repo.update_run_progress(run_id, current_category=categories[0], categories_total=1)
     background.add_task(_run_backfill_job, category_id, effective_from, days, run_id)
+    run = repo.get_run(run_id)
+    if not run:
+        raise HTTPException(500, "Failed to create scrape run")
+    return run
+
+
+@app.post("/api/categories/{category_id}/rescrape")
+def rescrape_category(category_id: int, background: BackgroundTasks):
+    if repo.get_active_run():
+        raise HTTPException(409, "A scrape is already running. Stop it first.")
+
+    tracked = [c for c in repo.list_tracked() if c["id"] == category_id]
+    if not tracked:
+        raise HTTPException(404, "Category not found")
+
+    cat = tracked[0]
+    earliest = repo.earliest_announcement_date(cat["code"])
+    try:
+        effective_from = date.fromisoformat(earliest) if earliest else date.today() - timedelta(days=365)
+    except ValueError:
+        effective_from = date.today() - timedelta(days=365)
+    try:
+        run_id = repo.start_run(
+            "rescrape",
+            [cat["code"]],
+            categories_total=1,
+            date_from=effective_from.isoformat(),
+            date_to=date.today().isoformat(),
+            category_ids=[category_id],
+        )
+    except ActiveScrapeError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    repo.update_run_progress(run_id, current_category=cat["code"], categories_total=1)
+    background.add_task(_run_backfill_job, category_id, effective_from, None, run_id, True)
     run = repo.get_run(run_id)
     if not run:
         raise HTTPException(500, "Failed to create scrape run")
@@ -369,6 +413,7 @@ def resume_run(run_id: int, background: BackgroundTasks):
             mode=mode,
             category_ids=category_ids,
             run_id=new_run_id,
+            force_refresh=mode == "rescrape",
         )
 
     background.add_task(job)

@@ -52,6 +52,7 @@ function toQuery(filters: TenderFilters): string {
   set('deadlineFrom', filters.deadlineFrom)
   set('deadlineTo', filters.deadlineTo)
   if (filters.withinDeadline) params.set('withinDeadline', '1')
+  if (filters.hasSpec) params.set('hasSpec', '1')
   set('amountFrom', filters.amountFrom)
   set('amountTo', filters.amountTo)
   set('bidderCountMin', filters.bidderCountMin)
@@ -82,7 +83,7 @@ export const httpApi: DataSource = {
     }),
   removeTrackedCategory: (categoryId) =>
     request<void>(`/api/categories/${categoryId}`, { method: 'DELETE' }),
-  triggerBackfill: (categoryId, options) =>
+    triggerBackfill: (categoryId, options) =>
     request<ScrapeRun>(`/api/categories/${categoryId}/backfill`, {
       method: 'POST',
       body: JSON.stringify({
@@ -90,6 +91,8 @@ export const httpApi: DataSource = {
         days: options?.days,
       }),
     }),
+  triggerRescrape: (categoryId) =>
+    request<ScrapeRun>(`/api/categories/${categoryId}/rescrape`, { method: 'POST' }),
   getScrapeHealth: () => request<ScrapeHealth>('/api/runs'),
   stopScrape: () => request<{ ok: boolean; run: ScrapeRun | null }>('/api/scrape/stop', { method: 'POST' }),
   resumeRun: (runId) => request<ScrapeRun>(`/api/runs/${runId}/resume`, { method: 'POST' }),

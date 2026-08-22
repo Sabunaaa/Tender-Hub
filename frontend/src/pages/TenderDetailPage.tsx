@@ -1,7 +1,9 @@
+import { useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { ExternalLink } from 'lucide-react'
 import { api } from '../api'
+import { SpecPanel } from '../components/SpecPanel'
 import { Card, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
 import { errorMessage } from '../lib/errors'
 import { formatDate, formatDateTime, formatGel } from '../lib/format'
@@ -15,10 +17,19 @@ export function TenderDetailPage() {
     enabled: Number.isFinite(appId),
   })
 
+  const { hash } = useLocation()
+  const specRef = useRef<HTMLDivElement | null>(null)
+  const specText = data?.specText?.trim() ?? ''
+
+  // The spec block renders only after the query resolves, so the browser cannot
+  // honour the #spec fragment on its own.
+  useEffect(() => {
+    if (hash !== '#spec' || !specText) return
+    specRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [hash, specText])
+
   if (isLoading) return <LoadingState label="Loading tender…" />
   if (error || !data) return <ErrorState message={errorMessage(error, 'Tender not found')} />
-
-  const specText = data.specText?.trim() ?? ''
 
   return (
     <div>
@@ -59,12 +70,15 @@ export function TenderDetailPage() {
                 ['Bids accepted from', formatDate(data.bidsAcceptedFrom)],
                 ['Bid deadline', formatDate(data.bidDeadline)],
                 ['Estimated value', formatGel(data.estimatedValue)],
+                ['Amount / volume', data.amountOrVolume?.trim() ? data.amountOrVolume : '—'],
                 ['VAT terms', data.vatTerms ?? '—'],
                 ['Guarantee', data.guaranteeAmount != null ? formatGel(data.guaranteeAmount) : '—'],
                 ['Guarantee validity', data.guaranteeValidity ?? '—'],
                 ['Bid reduction step', data.bidReductionStep != null ? formatGel(data.bidReductionStep) : '—'],
                 ['Winner', data.winner ?? '—'],
-                ['Bidders', String(data.bidderCount)],
+                ['Procurement type', data.procurementType || '—'],
+                ['Donor', data.donor?.trim() ? data.donor : 'N/A'],
+                ['Bidders', String(data.bidderCount ?? 0)],
               ] as const
             ).map(([label, value]) => (
               <div key={label}>
@@ -85,20 +99,61 @@ export function TenderDetailPage() {
           </dl>
         </Card>
 
-        <Card title="CPV codes">
-          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {data.cpvCodes.map((c) => (
-              <li key={c.code} className="cpv-chip">
-                <strong>{c.code}</strong>
-                <span>{c.name}</span>
-              </li>
-            ))}
-          </ul>
-        </Card>
+        <div className="detail-side">
+          <Card title="CPV codes">
+            {data.cpvCodes.length === 0 ? (
+              <div className="muted">No CPV codes.</div>
+            ) : (
+              <ul className="cpv-list">
+                {data.cpvCodes.map((c) => (
+                  <li key={c.code} className="cpv-chip">
+                    <strong>{c.code}</strong>
+                    <span>{c.name}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <Card title="Attachments">
+            {data.attachments.length === 0 ? (
+              <div className="muted">No attachments.</div>
+            ) : (
+              <ul className="file-list">
+                {data.attachments.map((a) => (
+                  <li key={a.id}>
+                    <a className="link-red" href={a.url} target="_blank" rel="noreferrer">
+                      {a.name}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <Card title="Result documents">
+            {data.resultDocuments.length === 0 ? (
+              <div className="muted">No result documents yet.</div>
+            ) : (
+              <ul className="file-list">
+                {data.resultDocuments.map((a) => (
+                  <li key={a.id}>
+                    <a className="link-red" href={a.url} target="_blank" rel="noreferrer">
+                      {a.name}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </div>
       </div>
 
       <div className="detail-grid-2 equal">
-        <Card title="Documentation & technical specs">
+        <Card title="Documentation">
+          {data.documentSections.length === 0 && (
+            <div className="muted">No document sections.</div>
+          )}
           {data.documentSections.map((section) => (
             <div key={section.id} className="doc-block">
               <div className="meta-label" style={{ marginBottom: 6 }}>
@@ -113,7 +168,7 @@ export function TenderDetailPage() {
                 {section.body}
               </div>
               {section.attachments.length > 0 && (
-                <ul style={{ margin: '8px 0 0', paddingLeft: 16 }}>
+                <ul className="file-list" style={{ marginTop: 8 }}>
                   {section.attachments.map((a) => (
                     <li key={a.id}>
                       <a className="link-red" href={a.url} target="_blank" rel="noreferrer">
@@ -125,53 +180,23 @@ export function TenderDetailPage() {
               )}
             </div>
           ))}
-          {specText ? (
-            <div className="doc-block">
-              <div className="meta-label" style={{ marginBottom: 6 }}>
-                Extracted text from ტექნიკური file
-              </div>
-              <div className="spec-text georgian">{specText}</div>
-            </div>
-          ) : (
-            <div className="muted" style={{ marginTop: 10 }}>
-              No extracted text yet. The attached file is listed on the right.
-            </div>
-          )}
         </Card>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-          <Card title="Attachments">
-            {data.attachments.length === 0 ? (
-              <div className="muted">No attachments.</div>
+        <Card
+          title="Technical specification"
+          eyebrow="Extracted from ტექნიკური file"
+          className="spec-panel"
+        >
+          <div id="spec" ref={specRef}>
+            {specText ? (
+              <SpecPanel text={specText} />
             ) : (
-              <ul style={{ margin: 0, paddingLeft: 16 }}>
-                {data.attachments.map((a) => (
-                  <li key={a.id} style={{ marginBottom: 6 }}>
-                    <a className="link-red" href={a.url} target="_blank" rel="noreferrer">
-                      {a.name}
-                    </a>
-                  </li>
-                ))}
-              </ul>
+              <div className="muted">
+                No extracted text yet. The attached file is listed under Attachments.
+              </div>
             )}
-          </Card>
-
-          <Card title="Result documents">
-            {data.resultDocuments.length === 0 ? (
-              <div className="muted">No result documents yet.</div>
-            ) : (
-              <ul style={{ margin: 0, paddingLeft: 16 }}>
-                {data.resultDocuments.map((a) => (
-                  <li key={a.id} style={{ marginBottom: 6 }}>
-                    <a className="link-red" href={a.url} target="_blank" rel="noreferrer">
-                      {a.name}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
-        </div>
+          </div>
+        </Card>
       </div>
 
       <div className="detail-grid-2 equal">
