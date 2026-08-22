@@ -236,6 +236,9 @@ svg:focus-visible {
   margin-top: auto;
   padding: 11px;
   border-top: 1px solid #24272d;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
 }
 
 .local-badge {
@@ -244,7 +247,7 @@ svg:focus-visible {
   align-items: flex-start;
   background: #181b20;
   border: 1px solid #292d34;
-  margin: 13px 1px 1px;
+  margin: 8px 1px 1px;
   border-radius: 9px;
   padding: 12px;
 }
@@ -1468,6 +1471,43 @@ option {
   width: 100%;
   accent-color: var(--red);
 }
+
+.people-list { min-width: 0; }
+.people-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  align-items: center;
+}
+.people-row .field-input { flex: 1; min-width: 0; }
+
+.engagement-add {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.engagement-add .field-input { flex: 1; min-width: 220px; }
+
+.engage-col { width: 1%; white-space: nowrap; text-align: center; }
+.engage-toggle {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.engage-btn {
+  border: 0;
+  background: #fff;
+  min-width: 36px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted);
+}
+.engage-btn + .engage-btn { border-left: 1px solid var(--line); }
+.engage-btn.active.yes { background: var(--success-soft); color: var(--success); }
+.engage-btn.active.no { background: #f1f2f4; color: #68707c; }
 
 .settings-savebar {
   position: sticky;

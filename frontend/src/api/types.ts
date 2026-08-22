@@ -208,6 +208,8 @@ export interface AppSettings {
   requestTimeoutSeconds: number
   closingSoonDays: number
   defaultPageSize: number
+  accountManagers: string[]
+  solutionManagers: string[]
   nextScheduledAt: string | null
   taskStatus: TaskStatus
 }
@@ -215,6 +217,27 @@ export interface AppSettings {
 export type SettingsUpdate = Partial<
   Omit<AppSettings, 'nextScheduledAt' | 'taskStatus'>
 >
+
+export interface Engagement {
+  id: number
+  announcementNumber: string
+  appId: number | null
+  engaged: boolean
+  accountManager: string
+  solutionManager: string
+  domain: string
+  title: string
+  buyer: string
+  status: string
+  categoryName: string
+  announcementDate: string | null
+  bidDeadline: string | null
+  estimatedValue: number | null
+  currency: string
+  bidderCount: number
+  createdAt: string
+  updatedAt: string
+}
 
 export interface DataSource {
   getStats(): Promise<DashboardStats>
@@ -232,4 +255,11 @@ export interface DataSource {
   triggerDailyScrape(): Promise<{ ok: boolean; runId: number; message: string }>
   getSettings(): Promise<AppSettings>
   updateSettings(patch: SettingsUpdate): Promise<AppSettings>
+  listEngagements(): Promise<Engagement[]>
+  addEngagement(announcementNumber: string): Promise<Engagement>
+  updateEngagement(
+    id: number,
+    patch: { engaged?: boolean; accountManager?: string; solutionManager?: string; domain?: string },
+  ): Promise<Engagement>
+  deleteEngagement(id: number): Promise<void>
 }

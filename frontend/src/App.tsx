@@ -4,6 +4,7 @@ import { AccessGate } from './components/AccessGate'
 import { AppLayout } from './components/AppLayout'
 import { CategoriesPage } from './pages/CategoriesPage'
 import { DashboardPage } from './pages/DashboardPage'
+import { EngagementPage } from './pages/EngagementPage'
 import { RunsPage } from './pages/RunsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { TenderDetailPage } from './pages/TenderDetailPage'
@@ -31,6 +32,7 @@ export default function App() {
               <Route path="tenders/:id" element={<TenderDetailPage />} />
               <Route path="categories" element={<CategoriesPage />} />
               <Route path="runs" element={<RunsPage />} />
+              <Route path="engagement" element={<EngagementPage />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>

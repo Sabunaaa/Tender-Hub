@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from tender_scraper.db import get_connection
 from tender_scraper.keywords import expand_terms
-from tender_scraper.queries import list_tenders
+from tender_scraper.queries import get_tender, list_tenders
 
 
 def _insert(conn, app_id: int, title: str, description: str = "", extra: str | None = None):
@@ -158,3 +158,17 @@ def test_firewall_matches_latin_spec_token(tmp_repo):
         )
     found = list_tenders({"keywords": ["firewall"]}, db)
     assert {item["appId"] for item in found["items"]} == {50}
+
+
+def test_get_tender_returns_extracted_spec_text(tmp_repo):
+    db = tmp_repo.db_path
+    with get_connection(db) as conn:
+        _insert(conn, 70, "ქსელური მოწყობილობები")
+        conn.execute(
+            "UPDATE tenders SET spec_text = ? WHERE app_id = 70",
+            ("კომუტატორი 48 პორტი PoE",),
+        )
+    detail = get_tender(70, db)
+    assert detail is not None
+    assert detail["specText"] == "კომუტატორი 48 პორტი PoE"
+    assert "resultDocuments" in detail

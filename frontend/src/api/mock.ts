@@ -6,6 +6,7 @@ import type {
   AppSettings,
   DashboardStats,
   DataSource,
+  Engagement,
   FilterOptions,
   Paginated,
   ScrapeHealth,
@@ -55,6 +56,8 @@ let mockSettings: AppSettings = withDerivedSettings({
   requestTimeoutSeconds: 60,
   closingSoonDays: 7,
   defaultPageSize: 20,
+  accountManagers: ['Nino Beridze', 'Luka Kapanadze'],
+  solutionManagers: ['Giorgi Maisuradze'],
   taskStatus: {
     registered: true,
     taskName: 'TenderDashboardDailyScrape',
@@ -64,6 +67,8 @@ let mockSettings: AppSettings = withDerivedSettings({
     message: 'Mock schedule is stored in memory only.',
   },
 })
+
+let mockEngagements: Engagement[] = []
 
 function delay(ms = 180): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
@@ -509,5 +514,64 @@ export const mockApi: DataSource = {
     })
     mockSettings = next
     return { ...mockSettings, taskStatus: { ...mockSettings.taskStatus } }
+  },
+
+  async listEngagements() {
+    await delay(80)
+    return [...mockEngagements]
+  },
+
+  async addEngagement(announcementNumber: string) {
+    await delay(120)
+    const code = announcementNumber.trim()
+    const tender = MOCK_TENDERS.find(
+      (t) => t.announcementNumber.toLowerCase() === code.toLowerCase() || String(t.appId) === code,
+    )
+    if (!tender) throw new Error(`No scraped tender matches announcement number “${code}”.`)
+    if (mockEngagements.some((e) => e.announcementNumber === tender.announcementNumber)) {
+      throw new Error('That tender is already on the engagement list.')
+    }
+    const now = formatISO(new Date())
+    const row: Engagement = {
+      id: mockEngagements.length ? Math.max(...mockEngagements.map((e) => e.id)) + 1 : 1,
+      announcementNumber: tender.announcementNumber,
+      appId: tender.appId,
+      engaged: false,
+      accountManager: '',
+      solutionManager: '',
+      domain: '',
+      title: tender.title,
+      buyer: tender.buyer,
+      status: tender.status,
+      categoryName: tender.categoryName,
+      announcementDate: tender.announcementDate,
+      bidDeadline: tender.bidDeadline,
+      estimatedValue: tender.estimatedValue,
+      currency: tender.currency,
+      bidderCount: tender.bidderCount,
+      createdAt: now,
+      updatedAt: now,
+    }
+    mockEngagements.unshift(row)
+    return row
+  },
+
+  async updateEngagement(id, patch) {
+    await delay(80)
+    const idx = mockEngagements.findIndex((e) => e.id === id)
+    if (idx < 0) throw new Error('Engagement not found.')
+    const current = mockEngagements[idx]!
+    const next = {
+      ...current,
+      ...patch,
+      updatedAt: formatISO(new Date()),
+    }
+    mockEngagements[idx] = next
+    return next
+  },
+
+  async deleteEngagement(id) {
+    await delay(80)
+    mockEngagements = mockEngagements.filter((e) => e.id !== id)
   },
 }

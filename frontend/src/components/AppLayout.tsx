@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FolderTree,
+  Handshake,
   LayoutDashboard,
   Menu,
   Search,
@@ -21,8 +22,16 @@ const nav = [
   { to: '/tenders', label: 'Tenders', icon: Search, eyebrow: 'Explorer', title: 'Procurement tenders' },
   { to: '/categories', label: 'Categories', icon: FolderTree, eyebrow: 'Tracking', title: 'CPV categories' },
   { to: '/runs', label: 'Scrape Health', icon: Activity, eyebrow: 'Operations', title: 'Scrape health' },
-  { to: '/settings', label: 'Settings', icon: Settings, eyebrow: 'Workspace', title: 'Settings' },
+  { to: '/engagement', label: 'Engagement', icon: Handshake, eyebrow: 'Pipeline', title: 'Engagement' },
 ]
+
+const settingsNav = {
+  to: '/settings',
+  label: 'Settings',
+  icon: Settings,
+  eyebrow: 'Workspace',
+  title: 'Settings',
+}
 
 function ScrapeStatusBadge() {
   const { data } = useQuery(runsQueryOptions)
@@ -97,8 +106,8 @@ export function AppLayout() {
   const [mobileOpen, setMobileOpen] = useState(false)
 
   const current = useMemo(() => {
-    const match = nav.find((item) =>
-      item.end ? location.pathname === '/' : location.pathname.startsWith(item.to),
+    const match = [...nav, settingsNav].find((item) =>
+      'end' in item && item.end ? location.pathname === '/' : location.pathname.startsWith(item.to),
     )
     return (
       match ?? {
@@ -169,6 +178,15 @@ export function AppLayout() {
         </nav>
 
         <div className="sidebar-bottom">
+          <NavLink
+            to={settingsNav.to}
+            title={settingsNav.label}
+            onClick={() => setMobileOpen(false)}
+            className={({ isActive }) => cn('nav-item', isActive && 'active')}
+          >
+            <settingsNav.icon size={19} />
+            <span>{settingsNav.label}</span>
+          </NavLink>
           {!collapsed && <ScrapeStatusBadge />}
         </div>
       </aside>

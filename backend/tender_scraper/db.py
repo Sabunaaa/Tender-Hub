@@ -138,6 +138,18 @@ CREATE TABLE IF NOT EXISTS raw_html (
     html TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS engagements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    announcement_number TEXT NOT NULL UNIQUE,
+    app_id INTEGER REFERENCES tenders(app_id) ON DELETE SET NULL,
+    engaged INTEGER NOT NULL DEFAULT 0,
+    account_manager TEXT,
+    solution_manager TEXT,
+    domain TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS cpv_categories (
     id INTEGER PRIMARY KEY,
     code TEXT NOT NULL UNIQUE,
@@ -196,6 +208,7 @@ def init_db(db_path: Path | None = None) -> None:
         _ensure_column(conn, "scrape_runs", "category_ids", "category_ids TEXT")
         _ensure_column(conn, "scrape_runs", "resumed_from", "resumed_from INTEGER")
         _ensure_column(conn, "tenders", "spec_text", "spec_text TEXT")
+        _ensure_column(conn, "engagements", "domain", "domain TEXT")
         for cat_id, code, name in DEFAULT_TRACKED:
             conn.execute(
                 """

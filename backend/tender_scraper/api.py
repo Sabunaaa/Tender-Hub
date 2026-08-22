@@ -17,6 +17,13 @@ from tender_scraper.cpv_seed import seed_cpv_categories
 from tender_scraper.db import init_db
 from tender_scraper.pipeline import ScrapePipeline, run_backfill
 from tender_scraper.queries import filter_options, get_stats, get_tender, list_tenders
+from tender_scraper.engagements import (
+    EngagementError,
+    add_engagement,
+    delete_engagement,
+    list_engagements,
+    update_engagement,
+)
 from tender_scraper.repository import ActiveScrapeError, Repository
 from tender_scraper.access import (
     ACCESS_COOKIE,
@@ -119,6 +126,8 @@ class SettingsUpdateBody(BaseModel):
     requestTimeoutSeconds: float | None = Field(default=None, ge=10, le=180)
     closingSoonDays: int | None = Field(default=None, ge=1, le=30)
     defaultPageSize: int | None = Field(default=None, ge=5, le=100)
+    accountManagers: list[str] | None = None
+    solutionManagers: list[str] | None = None
 
 
 @app.get("/api/health")
@@ -186,6 +195,49 @@ def tender_detail(app_id: int):
     if not data:
         raise HTTPException(404, "Tender not found")
     return data
+
+
+class AddEngagementBody(BaseModel):
+    announcementNumber: str = ""
+
+
+class UpdateEngagementBody(BaseModel):
+    engaged: bool | None = None
+    accountManager: str | None = None
+    solutionManager: str | None = None
+    domain: str | None = None
+
+
+@app.get("/api/engagements")
+def engagements():
+    return list_engagements()
+
+
+@app.post("/api/engagements")
+def create_engagement(body: AddEngagementBody):
+    try:
+        return add_engagement(body.announcementNumber)
+    except EngagementError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.patch("/api/engagements/{engagement_id}")
+def patch_engagement(engagement_id: int, body: UpdateEngagementBody):
+    patch = body.model_dump(exclude_none=True)
+    try:
+        return update_engagement(engagement_id, patch)
+    except EngagementError as exc:
+        status = 404 if "not found" in str(exc).lower() else 400
+        raise HTTPException(status, str(exc)) from exc
+
+
+@app.delete("/api/engagements/{engagement_id}")
+def remove_engagement(engagement_id: int):
+    try:
+        delete_engagement(engagement_id)
+    except EngagementError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {"ok": True}
 
 
 @app.get("/api/filters/options")

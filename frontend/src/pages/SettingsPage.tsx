@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlarmClock, Check, Play, RotateCcw, Save, SlidersHorizontal } from 'lucide-react'
+import { AlarmClock, Check, Play, RotateCcw, Save, SlidersHorizontal, Users } from 'lucide-react'
 import { api, isMockMode } from '../api'
 import type { AppSettings, SettingsUpdate, Weekday } from '../api'
 import { ErrorState, LoadingState } from '../components/ui'
@@ -33,6 +33,8 @@ function toDraft(settings: AppSettings): Draft {
     requestTimeoutSeconds: settings.requestTimeoutSeconds,
     closingSoonDays: settings.closingSoonDays,
     defaultPageSize: settings.defaultPageSize,
+    accountManagers: [...(settings.accountManagers ?? [])],
+    solutionManagers: [...(settings.solutionManagers ?? [])],
   }
 }
 
@@ -48,6 +50,69 @@ function describeDays(days: Weekday[]): string {
   return WEEKDAYS.filter((d) => days.includes(d.id))
     .map((d) => d.short)
     .join(', ')
+}
+
+function PeopleList({
+  label,
+  names,
+  onChange,
+}: {
+  label: string
+  names: string[]
+  onChange: (names: string[]) => void
+}) {
+  const [incoming, setIncoming] = useState('')
+  const add = () => {
+    const name = incoming.trim()
+    if (!name) return
+    if (names.some((item) => item.toLowerCase() === name.toLowerCase())) {
+      setIncoming('')
+      return
+    }
+    onChange([...names, name])
+    setIncoming('')
+  }
+  return (
+    <div className="people-list">
+      <span className="filter-label">{label}</span>
+      {names.map((name, index) => (
+        <div key={`p-${index}`} className="people-row">
+          <input
+            className="field-input"
+            value={name}
+            onChange={(e) => {
+              const next = [...names]
+              next[index] = e.target.value
+              onChange(next)
+            }}
+          />
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => onChange(names.filter((_, i) => i !== index))}
+          >
+            Remove
+          </button>
+        </div>
+      ))}
+      <div className="people-row">
+        <input
+          className="field-input"
+          placeholder="Add a name"
+          value={incoming}
+          onChange={(e) => setIncoming(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter') return
+            e.preventDefault()
+            add()
+          }}
+        />
+        <button type="button" className="secondary-button" onClick={add}>
+          Add
+        </button>
+      </div>
+    </div>
+  )
 }
 
 export function SettingsPage() {
@@ -387,6 +452,33 @@ export function SettingsPage() {
               ))}
             </select>
           </label>
+        </article>
+      </section>
+
+      <section className="settings-grid">
+        <article className="settings-card" style={{ gridColumn: '1 / -1' }}>
+          <header>
+            <Users size={18} />
+            <div>
+              <p className="eyebrow">Engagement</p>
+              <h3>Account and Solution Managers</h3>
+            </div>
+          </header>
+          <p className="muted">
+            These names appear as dropdowns on the Engagement page. Add, edit, or remove them here, then save.
+          </p>
+          <div className="two-col">
+            <PeopleList
+              label="Account managers"
+              names={draft.accountManagers}
+              onChange={(accountManagers) => patch({ accountManagers })}
+            />
+            <PeopleList
+              label="Solution managers"
+              names={draft.solutionManagers}
+              onChange={(solutionManagers) => patch({ solutionManagers })}
+            />
+          </div>
         </article>
       </section>
 

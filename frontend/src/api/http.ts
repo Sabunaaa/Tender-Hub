@@ -3,6 +3,7 @@ import type {
   CpvCategory,
   DashboardStats,
   DataSource,
+  Engagement,
   FilterOptions,
   Paginated,
   ScrapeHealth,
@@ -100,4 +101,16 @@ export const httpApi: DataSource = {
       method: 'PUT',
       body: JSON.stringify(patch),
     }),
+  listEngagements: () => request<Engagement[]>('/api/engagements'),
+  addEngagement: (announcementNumber) =>
+    request<Engagement>('/api/engagements', {
+      method: 'POST',
+      body: JSON.stringify({ announcementNumber }),
+    }),
+  updateEngagement: (id, patch) =>
+    request<Engagement>(`/api/engagements/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  deleteEngagement: (id) => request<void>(`/api/engagements/${id}`, { method: 'DELETE' }),
 }

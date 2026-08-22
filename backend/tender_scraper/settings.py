@@ -33,6 +33,25 @@ _PS_DAYS = {
 
 _lock = threading.Lock()
 _cache: AppSettings | None = None
+_MAX_PEOPLE = 50
+_MAX_NAME = 80
+
+
+def _clean_names(value: list[str]) -> list[str]:
+    seen: list[str] = []
+    keys: set[str] = set()
+    for raw in value:
+        name = " ".join(str(raw).split()).strip()[:_MAX_NAME]
+        if not name:
+            continue
+        key = name.casefold()
+        if key in keys:
+            continue
+        keys.add(key)
+        seen.append(name)
+        if len(seen) >= _MAX_PEOPLE:
+            break
+    return seen
 
 
 class TaskStatus(BaseModel):
@@ -59,6 +78,8 @@ class AppSettings(BaseModel):
     request_timeout_seconds: float = Field(default=60, alias="requestTimeoutSeconds", ge=10, le=180)
     closing_soon_days: int = Field(default=7, alias="closingSoonDays", ge=1, le=30)
     default_page_size: int = Field(default=20, alias="defaultPageSize", ge=5, le=100)
+    account_managers: list[str] = Field(default_factory=list, alias="accountManagers")
+    solution_managers: list[str] = Field(default_factory=list, alias="solutionManagers")
 
     @field_validator("schedule_time")
     @classmethod
@@ -82,6 +103,11 @@ class AppSettings(BaseModel):
             if key not in seen:
                 seen.append(key)
         return seen
+
+    @field_validator("account_managers", "solution_managers")
+    @classmethod
+    def _valid_people(cls, value: list[str]) -> list[str]:
+        return _clean_names(value)
 
 
 class SettingsPayload(AppSettings):
