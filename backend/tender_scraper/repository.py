@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from . import config
 from .db import connect, get_connection, init_db
 from .parsers import ParsedTender
 
@@ -13,6 +14,10 @@ from .parsers import ParsedTender
 # Detail tabs whose child rows are owned by a scrape: app_main, app_docs,
 # app_bids and agency_docs respectively.
 ALL_TENDER_PARTS = frozenset({"main", "docs", "bids", "results"})
+
+
+class ActiveScrapeError(RuntimeError):
+    """Raised when start_run is called while another run is still marked running."""
 
 
 def now_iso() -> str:
@@ -56,9 +61,9 @@ class Repository:
                     bid_deadline, bids_accepted_from, estimated_value, currency, bidder_count,
                     winner, contract_status, source_url, description, supply_period, vat_terms,
                     guarantee_amount, guarantee_validity, bid_reduction_step, amount_or_volume,
-                    additional_info, scraped_at, updated_at
+                    additional_info, spec_text, scraped_at, updated_at
                 ) VALUES (
-                    ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+                    ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
                 )
                 ON CONFLICT(app_id) DO UPDATE SET
                     key=excluded.key,
@@ -87,6 +92,7 @@ class Repository:
                     bid_reduction_step=excluded.bid_reduction_step,
                     amount_or_volume=excluded.amount_or_volume,
                     additional_info=excluded.additional_info,
+                    spec_text=COALESCE(excluded.spec_text, tenders.spec_text),
                     scraped_at=excluded.scraped_at,
                     updated_at=excluded.updated_at
                 """,
@@ -98,7 +104,7 @@ class Repository:
                     tender.winner, tender.contract_status, tender.source_url, tender.description,
                     tender.supply_period, tender.vat_terms, tender.guarantee_amount, tender.guarantee_validity,
                     tender.bid_reduction_step, tender.amount_or_volume, tender.additional_info,
-                    scraped_at, scraped_at,
+                    tender.spec_text, scraped_at, scraped_at,
                 ),
             )
 
@@ -199,7 +205,7 @@ class Repository:
                 rows = conn.execute(
                     f"""
                     SELECT t.app_id, t.status, t.bid_deadline, t.estimated_value, t.bidder_count,
-                           t.winner, t.contract_status, t.title, t.description,
+                           t.winner, t.contract_status, t.title, t.description, t.spec_text,
                            (SELECT COUNT(*) FROM tender_document_sections d WHERE d.app_id = t.app_id) AS doc_count
                     FROM tenders t
                     WHERE t.app_id IN ({placeholders})
@@ -217,8 +223,41 @@ class Repository:
                         "title": r["title"],
                         "description": r["description"],
                         "hasDocs": (r["doc_count"] or 0) > 0,
+                        "hasSpec": r["spec_text"] is not None,
                     }
         return states
+
+    def list_doc_attachments(self, app_id: int) -> list[dict[str, str]]:
+        with get_connection(self.db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT name, url FROM tender_attachments
+                WHERE app_id = ? AND kind IN ('doc', 'section')
+                """,
+                (app_id,),
+            ).fetchall()
+        return [{"name": r["name"] or "", "url": r["url"] or ""} for r in rows]
+
+    def save_spec_text(self, app_id: int, text: str) -> None:
+        with get_connection(self.db_path) as conn:
+            conn.execute("UPDATE tenders SET spec_text = ? WHERE app_id = ?", (text, app_id))
+
+    def app_ids_missing_spec(self, app_ids: list[int] | None = None, limit: int | None = None) -> list[int]:
+        """Tenders that have never had a spec-file extraction attempted."""
+        sql = "SELECT app_id FROM tenders WHERE spec_text IS NULL"
+        params: list[Any] = []
+        if app_ids is not None:
+            if not app_ids:
+                return []
+            placeholders = ",".join("?" * len(app_ids))
+            sql += f" AND app_id IN ({placeholders})"
+            params.extend(app_ids)
+        sql += " ORDER BY app_id"
+        if limit:
+            sql += " LIMIT ?"
+            params.append(limit)
+        with get_connection(self.db_path) as conn:
+            return [r["app_id"] for r in conn.execute(sql, params).fetchall()]
 
     def save_raw_html(self, app_id: int | None, kind: str, html: str) -> None:
         with get_connection(self.db_path) as conn:
@@ -291,6 +330,13 @@ class Repository:
     ) -> int:
         total = categories_total if categories_total is not None else len(categories)
         with get_connection(self.db_path) as conn:
+            existing = conn.execute(
+                "SELECT id FROM scrape_runs WHERE status = 'running' ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            if existing:
+                raise ActiveScrapeError(
+                    f"A scrape is already running (run {existing['id']}). Stop it first."
+                )
             cur = conn.execute(
                 """
                 INSERT INTO scrape_runs (
@@ -494,6 +540,92 @@ class Repository:
                 "SELECT * FROM scrape_runs WHERE status = 'running' ORDER BY id DESC LIMIT 1"
             ).fetchone()
             return self._row_to_run(r) if r else None
+
+    def fail_stale_running_runs(self, older_than_hours: float | None = None) -> list[int]:
+        """Mark leftover ``running`` rows as failed if they are older than the threshold.
+
+        FastAPI background scrapes die with the process, but the row stays
+        ``running`` and blocks new work. A short threshold would also trip a
+        still-running CLI backfill, so the default is 12 hours.
+        """
+        hours = config.STALE_RUN_HOURS if older_than_hours is None else older_than_hours
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        failed: list[int] = []
+        with get_connection(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT id, started_at, errors FROM scrape_runs WHERE status = 'running'"
+            ).fetchall()
+            for row in rows:
+                started = datetime.fromisoformat(row["started_at"])
+                if started.tzinfo is None:
+                    started = started.replace(tzinfo=timezone.utc)
+                if started > cutoff:
+                    continue
+                errors = json.loads(row["errors"] or "[]")
+                note = (
+                    f"Marked failed on startup: scrape left running for more than {hours:g} hours"
+                )
+                if note not in errors:
+                    errors.append(note)
+                conn.execute(
+                    """
+                    UPDATE scrape_runs
+                    SET finished_at=?, status='failed', current_category=NULL, errors=?
+                    WHERE id=? AND status='running'
+                    """,
+                    (now_iso(), json.dumps(errors), row["id"]),
+                )
+                failed.append(int(row["id"]))
+        return failed
+
+    def latest_raw_html_by_app(self) -> dict[int, dict[str, str]]:
+        """Newest stored HTML fragment for each (app_id, kind) pair."""
+        with get_connection(self.db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT r.app_id, r.kind, r.html
+                FROM raw_html r
+                INNER JOIN (
+                    SELECT app_id, kind, MAX(id) AS max_id
+                    FROM raw_html
+                    WHERE app_id IS NOT NULL
+                    GROUP BY app_id, kind
+                ) latest ON latest.max_id = r.id
+                """
+            ).fetchall()
+        out: dict[int, dict[str, str]] = {}
+        for row in rows:
+            out.setdefault(int(row["app_id"]), {})[row["kind"]] = row["html"]
+        return out
+
+    def get_tender_key(self, app_id: int) -> str | None:
+        with get_connection(self.db_path) as conn:
+            row = conn.execute("SELECT key FROM tenders WHERE app_id=?", (app_id,)).fetchone()
+            return row["key"] if row else None
+
+    def prune_raw_html(self, older_than_days: int, apply: bool = False) -> dict[str, int]:
+        cutoff = f"-{int(older_than_days)} days"
+        with get_connection(self.db_path) as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS c, COALESCE(SUM(LENGTH(html)), 0) AS bytes
+                FROM raw_html
+                WHERE datetime(fetched_at) < datetime('now', ?)
+                """,
+                (cutoff,),
+            ).fetchone()
+            deleted = 0
+            if apply and row["c"]:
+                cur = conn.execute(
+                    "DELETE FROM raw_html WHERE datetime(fetched_at) < datetime('now', ?)",
+                    (cutoff,),
+                )
+                deleted = int(cur.rowcount)
+            return {
+                "matching": int(row["c"]),
+                "bytes": int(row["bytes"]),
+                "deleted": deleted,
+            }
 
     def upsert_cpv_categories(self, categories: list[tuple[int, str, str]]) -> None:
         with get_connection(self.db_path) as conn:

@@ -219,6 +219,8 @@ function buildTender(index: number, categoryCode: string, announcement: Date): T
     bidReductionStep: Math.round(value * 0.01),
     amountOrVolume: 'იხილეთ სატენდერო დოკუმენტაცია',
     additionalInfo: null,
+    specText:
+      'ტექნიკური დავალება: ქსელური კომუტატორი, არანაკლებ 24 პორტი, PoE, მართვადი. მარშრუტიზატორი, firewall/NGFW.',
     cpvCodes,
     documentSections: [
       {
@@ -236,7 +238,7 @@ function buildTender(index: number, categoryCode: string, announcement: Date): T
         attachments: [
           {
             id: `${appId}-a1`,
-            name: `${announcementNumber}_specification.pdf`,
+            name: `ტექნიკური დავალება.pdf`,
             url: `https://tenders.procurement.gov.ge/public/library/files.php?mode=que&file=${appId}&code=1`,
           },
         ],
@@ -245,7 +247,7 @@ function buildTender(index: number, categoryCode: string, announcement: Date): T
     attachments: [
       {
         id: `${appId}-spec`,
-        name: `${announcementNumber}_specification.pdf`,
+        name: `ტექნიკური დავალება.pdf`,
         url: `https://tenders.procurement.gov.ge/public/library/files.php?mode=que&file=${appId}&code=1`,
       },
     ],

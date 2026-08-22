@@ -56,6 +56,11 @@ DAILY_LOOKBACK_DAYS = int(os.environ.get("TENDER_DAILY_LOOKBACK_DAYS", "3"))
 
 API_HOST = os.environ.get("TENDER_API_HOST", "127.0.0.1")
 API_PORT = int(os.environ.get("TENDER_API_PORT", "8000"))
+FRONTEND_DIR = Path(os.environ.get("TENDER_FRONTEND_DIR", PROJECT_ROOT / "frontend" / "dist"))
+
+# Running rows older than this are treated as leftovers from a dead process.
+# A live backfill is 45–90 minutes; 12 hours stays well clear of that.
+STALE_RUN_HOURS = float(os.environ.get("TENDER_STALE_RUN_HOURS", "12"))
 
 
 def ensure_dirs() -> None:

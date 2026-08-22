@@ -2,11 +2,55 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { formatISO, subDays } from 'date-fns'
-import { api, type TenderFilters } from '../api'
-import { Card, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
+import { api } from '../api'
+import { Card, ErrorState, FilterSection, LoadingState, PageHeader, StatusBadge } from '../components/ui'
+import { errorMessage } from '../lib/errors'
 import { formatDate, formatGel, shortCategory } from '../lib/format'
+import { DEVICE_KEYWORDS, activeDatePreset, filtersFromParams, parseList } from '../lib/tenderFilters'
 
 const COLUMN_STORAGE_KEY = 'tender-hub.visible-columns'
+const FILTER_OPEN_KEY = 'tender-hub.filter-open'
+
+const FILTER_SECTIONS = [
+  'search',
+  'device',
+  'category',
+  'cpv',
+  'status',
+  'type',
+  'buyer',
+  'announced',
+  'value',
+  'bidders',
+  'columns',
+] as const
+
+type FilterSectionId = (typeof FILTER_SECTIONS)[number]
+
+const DEFAULT_FILTER_OPEN: Record<FilterSectionId, boolean> = {
+  search: true,
+  device: true,
+  category: true,
+  cpv: true,
+  status: true,
+  type: true,
+  buyer: true,
+  announced: true,
+  value: true,
+  bidders: true,
+  columns: true,
+}
+
+function loadFilterOpen(): Record<FilterSectionId, boolean> {
+  try {
+    const raw = localStorage.getItem(FILTER_OPEN_KEY)
+    if (!raw) return { ...DEFAULT_FILTER_OPEN }
+    const parsed = JSON.parse(raw) as Partial<Record<FilterSectionId, boolean>>
+    return { ...DEFAULT_FILTER_OPEN, ...parsed }
+  } catch {
+    return { ...DEFAULT_FILTER_OPEN }
+  }
+}
 
 const TABLE_COLUMNS = [
   { id: 'number', label: 'Number', required: true },
@@ -43,43 +87,27 @@ function loadVisibleColumns(): Record<ColumnId, boolean> {
   }
 }
 
-function parseList(value: string | null): string[] | undefined {
-  if (!value) return undefined
-  return value.split(',').filter(Boolean)
-}
-
-function filtersFromParams(params: URLSearchParams): TenderFilters {
-  return {
-    q: params.get('q') ?? undefined,
-    categoryCodes: parseList(params.get('categories')),
-    cpvCode: params.get('cpv') ?? undefined,
-    status: parseList(params.get('status')),
-    procurementType: parseList(params.get('type')),
-    buyer: params.get('buyer') ?? undefined,
-    dateFrom: params.get('dateFrom') ?? undefined,
-    dateTo: params.get('dateTo') ?? undefined,
-    deadlineFrom: params.get('deadlineFrom') ?? undefined,
-    deadlineTo: params.get('deadlineTo') ?? undefined,
-    withinDeadline: params.get('withinDeadline') === '1' ? true : undefined,
-    amountFrom: params.get('amountFrom') ? Number(params.get('amountFrom')) : undefined,
-    amountTo: params.get('amountTo') ? Number(params.get('amountTo')) : undefined,
-    bidderCountMin: params.get('biddersMin') ? Number(params.get('biddersMin')) : undefined,
-    bidderCountMax: params.get('biddersMax') ? Number(params.get('biddersMax')) : undefined,
-    page: Number(params.get('page') ?? 1),
-    pageSize: Number(params.get('pageSize') ?? 20),
-    sortBy: (params.get('sortBy') as TenderFilters['sortBy']) ?? 'announcementDate',
-    sortDir: (params.get('sortDir') as TenderFilters['sortDir']) ?? 'desc',
-  }
-}
-
 export function TendersPage() {
   const [params, setParams] = useSearchParams()
-  const filters = useMemo(() => filtersFromParams(params), [params])
+  const settingsQuery = useQuery({ queryKey: ['settings'], queryFn: () => api.getSettings() })
+  const filters = useMemo(
+    () => filtersFromParams(params, { pageSize: settingsQuery.data?.defaultPageSize }),
+    [params, settingsQuery.data?.defaultPageSize],
+  )
   const [visibleColumns, setVisibleColumns] = useState<Record<ColumnId, boolean>>(loadVisibleColumns)
+  const [filterOpen, setFilterOpen] = useState<Record<FilterSectionId, boolean>>(loadFilterOpen)
 
   useEffect(() => {
     localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(visibleColumns))
   }, [visibleColumns])
+
+  useEffect(() => {
+    localStorage.setItem(FILTER_OPEN_KEY, JSON.stringify(filterOpen))
+  }, [filterOpen])
+
+  const toggleFilterSection = (id: FilterSectionId) => {
+    setFilterOpen((prev) => ({ ...prev, [id]: !prev[id] }))
+  }
 
   const toggleColumn = (id: ColumnId) => {
     const col = TABLE_COLUMNS.find((c) => c.id === id)
@@ -189,7 +217,7 @@ export function TendersPage() {
     setParams(next)
   }
 
-  const activePreset = params.get('preset')
+  const activePreset = activeDatePreset(params)
 
   const totalPages = tendersQuery.data
     ? Math.max(1, Math.ceil(tendersQuery.data.total / tendersQuery.data.pageSize))
@@ -219,22 +247,72 @@ export function TendersPage() {
 
       <div className="explorer-layout">
         <Card title="Filters" className="filter-panel sticky-filters">
-          {!optionsQuery.data ? (
+          {optionsQuery.isLoading ? (
             <LoadingState />
+          ) : optionsQuery.error || !optionsQuery.data ? (
+            <ErrorState message={errorMessage(optionsQuery.error, 'Failed to load filters')} />
           ) : (
             <div className="filter-stack">
-              <label>
-                <span className="filter-label">Search</span>
+              <FilterSection title="Search" open={filterOpen.search} onToggle={() => toggleFilterSection('search')}>
                 <input
                   className="field-input"
                   placeholder="Number, buyer, title…"
                   value={filters.q ?? ''}
                   onChange={(e) => set('q', e.target.value || null)}
                 />
-              </label>
+              </FilterSection>
 
-              <div>
-                <div className="filter-label">Category</div>
+              <FilterSection
+                title="Device / topic"
+                open={filterOpen.device}
+                onToggle={() => toggleFilterSection('device')}
+              >
+                <div className="keyword-chips">
+                  {DEVICE_KEYWORDS.map((chip) => (
+                    <button
+                      key={chip.id}
+                      type="button"
+                      className={`chip-button${filters.keywords?.includes(chip.id) ? ' active' : ''}`}
+                      aria-pressed={filters.keywords?.includes(chip.id) ?? false}
+                      onClick={() => toggleMulti('keywords', chip.id)}
+                    >
+                      {chip.label}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  className="field-input"
+                  style={{ marginTop: 8 }}
+                  placeholder="ქართული სიტყვა, then Enter"
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return
+                    e.preventDefault()
+                    const value = e.currentTarget.value.trim()
+                    if (!value) return
+                    toggleMulti('keywords', value)
+                    e.currentTarget.value = ''
+                  }}
+                />
+                {filters.keywords
+                  ?.filter((k) => !DEVICE_KEYWORDS.some((chip) => chip.id === k))
+                  .map((k) => (
+                    <button
+                      key={k}
+                      type="button"
+                      className="chip-button active"
+                      style={{ marginTop: 8, marginRight: 6 }}
+                      onClick={() => toggleMulti('keywords', k)}
+                    >
+                      {k} ×
+                    </button>
+                  ))}
+              </FilterSection>
+
+              <FilterSection
+                title="Category"
+                open={filterOpen.category}
+                onToggle={() => toggleFilterSection('category')}
+              >
                 <div className="check-list">
                   {optionsQuery.data.categories.map((c) => (
                     <label key={c.code} className="check-row">
@@ -247,20 +325,18 @@ export function TendersPage() {
                     </label>
                   ))}
                 </div>
-              </div>
+              </FilterSection>
 
-              <label>
-                <span className="filter-label">CPV code</span>
+              <FilterSection title="CPV code" open={filterOpen.cpv} onToggle={() => toggleFilterSection('cpv')}>
                 <input
                   className="field-input"
                   value={filters.cpvCode ?? ''}
                   onChange={(e) => set('cpv', e.target.value || null)}
                   placeholder="e.g. 30213"
                 />
-              </label>
+              </FilterSection>
 
-              <div>
-                <div className="filter-label">Status</div>
+              <FilterSection title="Status" open={filterOpen.status} onToggle={() => toggleFilterSection('status')}>
                 <div className="check-list">
                   {optionsQuery.data.statuses.map((s) => (
                     <label key={s} className="check-row">
@@ -273,10 +349,13 @@ export function TendersPage() {
                     </label>
                   ))}
                 </div>
-              </div>
+              </FilterSection>
 
-              <div>
-                <div className="filter-label">Procurement type</div>
+              <FilterSection
+                title="Procurement type"
+                open={filterOpen.type}
+                onToggle={() => toggleFilterSection('type')}
+              >
                 <div className="check-list">
                   {optionsQuery.data.procurementTypes.map((s) => (
                     <label key={s} className="check-row">
@@ -289,10 +368,9 @@ export function TendersPage() {
                     </label>
                   ))}
                 </div>
-              </div>
+              </FilterSection>
 
-              <label>
-                <span className="filter-label">Buyer</span>
+              <FilterSection title="Buyer" open={filterOpen.buyer} onToggle={() => toggleFilterSection('buyer')}>
                 <input
                   list="buyers"
                   className="field-input"
@@ -305,73 +383,86 @@ export function TendersPage() {
                     <option key={b} value={b} />
                   ))}
                 </datalist>
-              </label>
+              </FilterSection>
 
-              <div className="two-col date-range">
-                <label>
-                  <span className="filter-label">Announced from</span>
-                  <input
-                    type="date"
-                    className="field-input date-input"
-                    value={filters.dateFrom ?? ''}
-                    onChange={(e) => set('dateFrom', e.target.value || null)}
-                  />
-                </label>
-                <label>
-                  <span className="filter-label">to</span>
-                  <input
-                    type="date"
-                    className="field-input date-input"
-                    value={filters.dateTo ?? ''}
-                    onChange={(e) => set('dateTo', e.target.value || null)}
-                  />
-                </label>
-              </div>
+              <FilterSection
+                title="Announced"
+                open={filterOpen.announced}
+                onToggle={() => toggleFilterSection('announced')}
+              >
+                <div className="two-col date-range">
+                  <label>
+                    <span className="filter-label">from</span>
+                    <input
+                      type="date"
+                      className="field-input date-input"
+                      value={filters.dateFrom ?? ''}
+                      onChange={(e) => set('dateFrom', e.target.value || null)}
+                    />
+                  </label>
+                  <label>
+                    <span className="filter-label">to</span>
+                    <input
+                      type="date"
+                      className="field-input date-input"
+                      value={filters.dateTo ?? ''}
+                      onChange={(e) => set('dateTo', e.target.value || null)}
+                    />
+                  </label>
+                </div>
+              </FilterSection>
 
-              <div className="two-col">
-                <label>
-                  <span className="filter-label">Value from</span>
-                  <input
-                    type="number"
-                    className="field-input"
-                    value={filters.amountFrom ?? ''}
-                    onChange={(e) => set('amountFrom', e.target.value || null)}
-                  />
-                </label>
-                <label>
-                  <span className="filter-label">to</span>
-                  <input
-                    type="number"
-                    className="field-input"
-                    value={filters.amountTo ?? ''}
-                    onChange={(e) => set('amountTo', e.target.value || null)}
-                  />
-                </label>
-              </div>
+              <FilterSection title="Value" open={filterOpen.value} onToggle={() => toggleFilterSection('value')}>
+                <div className="two-col">
+                  <label>
+                    <span className="filter-label">from</span>
+                    <input
+                      type="number"
+                      className="field-input"
+                      value={filters.amountFrom ?? ''}
+                      onChange={(e) => set('amountFrom', e.target.value || null)}
+                    />
+                  </label>
+                  <label>
+                    <span className="filter-label">to</span>
+                    <input
+                      type="number"
+                      className="field-input"
+                      value={filters.amountTo ?? ''}
+                      onChange={(e) => set('amountTo', e.target.value || null)}
+                    />
+                  </label>
+                </div>
+              </FilterSection>
 
-              <div className="two-col">
-                <label>
-                  <span className="filter-label">Bidders min</span>
-                  <input
-                    type="number"
-                    className="field-input"
-                    value={filters.bidderCountMin ?? ''}
-                    onChange={(e) => set('biddersMin', e.target.value || null)}
-                  />
-                </label>
-                <label>
-                  <span className="filter-label">max</span>
-                  <input
-                    type="number"
-                    className="field-input"
-                    value={filters.bidderCountMax ?? ''}
-                    onChange={(e) => set('biddersMax', e.target.value || null)}
-                  />
-                </label>
-              </div>
+              <FilterSection title="Bidders" open={filterOpen.bidders} onToggle={() => toggleFilterSection('bidders')}>
+                <div className="two-col">
+                  <label>
+                    <span className="filter-label">min</span>
+                    <input
+                      type="number"
+                      className="field-input"
+                      value={filters.bidderCountMin ?? ''}
+                      onChange={(e) => set('biddersMin', e.target.value || null)}
+                    />
+                  </label>
+                  <label>
+                    <span className="filter-label">max</span>
+                    <input
+                      type="number"
+                      className="field-input"
+                      value={filters.bidderCountMax ?? ''}
+                      onChange={(e) => set('biddersMax', e.target.value || null)}
+                    />
+                  </label>
+                </div>
+              </FilterSection>
 
-              <div>
-                <div className="filter-label">Visible columns</div>
+              <FilterSection
+                title="Visible columns"
+                open={filterOpen.columns}
+                onToggle={() => toggleFilterSection('columns')}
+              >
                 <div className="check-list" style={{ maxHeight: 'none' }}>
                   {TABLE_COLUMNS.map((col) => (
                     <label key={col.id} className="check-row">
@@ -385,19 +476,19 @@ export function TendersPage() {
                     </label>
                   ))}
                 </div>
-              </div>
+              </FilterSection>
             </div>
           )}
         </Card>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
+        <div className="explorer-main">
           <Card>
             <div className="toolbar-row">
               <div className="muted">
                 {tendersQuery.data ? (
                   <>
-                    Showing {(filters.page! - 1) * filters.pageSize! + 1}–
-                    {Math.min(filters.page! * filters.pageSize!, tendersQuery.data.total)} of{' '}
+                    Showing {((filters.page ?? 1) - 1) * (filters.pageSize ?? 20) + 1}–
+                    {Math.min((filters.page ?? 1) * (filters.pageSize ?? 20), tendersQuery.data.total)} of{' '}
                     {tendersQuery.data.total}
                   </>
                 ) : (
@@ -442,7 +533,7 @@ export function TendersPage() {
                   <option value="buyer">Buyer</option>
                 </select>
                 <select
-                  className="sort-select"
+                  className="sort-select sort-dir"
                   value={filters.sortDir}
                   onChange={(e) => set('sortDir', e.target.value)}
                 >
@@ -453,7 +544,9 @@ export function TendersPage() {
             </div>
 
             {tendersQuery.isLoading && <LoadingState />}
-            {tendersQuery.error && <ErrorState message={(tendersQuery.error as Error).message} />}
+            {tendersQuery.error && (
+              <ErrorState message={errorMessage(tendersQuery.error, 'Failed to load tenders')} />
+            )}
             {tendersQuery.data && (
               <div className="table-wrap">
                 <table>

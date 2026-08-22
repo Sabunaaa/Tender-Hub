@@ -79,6 +79,7 @@ export interface TenderDetail extends TenderSummary {
   bidReductionStep: number | null
   amountOrVolume: string | null
   additionalInfo: string | null
+  specText: string
   cpvCodes: TenderCpvCode[]
   documentSections: TenderDocumentSection[]
   attachments: TenderAttachment[]
@@ -90,6 +91,8 @@ export interface TenderDetail extends TenderSummary {
 
 export interface TenderFilters {
   q?: string
+  /** Device/topic chips: switch, router, firewall, wifi, storage, screen, or a custom term. */
+  keywords?: string[]
   categoryCodes?: string[]
   cpvCode?: string
   status?: string[]
@@ -132,6 +135,7 @@ export interface DashboardStats {
   totalTenders: number
   openTenders: number
   closingWithin7Days: number
+  closingSoonDays?: number
   totalEstimatedValue: number
   averageEstimatedValue: number
   currency: string
@@ -182,6 +186,36 @@ export interface ScrapeHealth {
   lastSuccessAt: string | null
 }
 
+export type Weekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
+
+export interface TaskStatus {
+  registered: boolean
+  taskName: string
+  state: string | null
+  lastRunAt: string | null
+  lastTaskResult: number | null
+  message: string | null
+}
+
+export interface AppSettings {
+  scheduleEnabled: boolean
+  scheduleTime: string
+  scheduleDays: Weekday[]
+  dailyLookbackDays: number
+  requestDelaySeconds: number
+  maxRequestsPerSecond: number
+  scrapeConcurrency: number
+  requestTimeoutSeconds: number
+  closingSoonDays: number
+  defaultPageSize: number
+  nextScheduledAt: string | null
+  taskStatus: TaskStatus
+}
+
+export type SettingsUpdate = Partial<
+  Omit<AppSettings, 'nextScheduledAt' | 'taskStatus'>
+>
+
 export interface DataSource {
   getStats(): Promise<DashboardStats>
   getTenders(filters: TenderFilters): Promise<Paginated<TenderSummary>>
@@ -195,4 +229,7 @@ export interface DataSource {
   getScrapeHealth(): Promise<ScrapeHealth>
   stopScrape(): Promise<{ ok: boolean; run: ScrapeRun | null }>
   resumeRun(runId: number): Promise<ScrapeRun>
+  triggerDailyScrape(): Promise<{ ok: boolean; runId: number; message: string }>
+  getSettings(): Promise<AppSettings>
+  updateSettings(patch: SettingsUpdate): Promise<AppSettings>
 }

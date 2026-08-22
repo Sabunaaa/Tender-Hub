@@ -72,6 +72,7 @@ class ParsedTender:
     bid_reduction_step: float | None = None
     amount_or_volume: str | None = None
     additional_info: str | None = None
+    spec_text: str | None = None
     cpv_codes: list[dict[str, str]] = field(default_factory=list)
     document_sections: list[dict[str, Any]] = field(default_factory=list)
     attachments: list[dict[str, str]] = field(default_factory=list)

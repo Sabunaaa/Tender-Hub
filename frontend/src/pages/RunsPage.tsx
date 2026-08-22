@@ -2,7 +2,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Play, Square } from 'lucide-react'
 import { api } from '../api'
 import { runsQueryOptions } from '../api/runsQuery'
+import { Link } from 'react-router-dom'
 import { Card, ErrorState, LoadingState, PageHeader } from '../components/ui'
+import { errorMessage } from '../lib/errors'
 import { formatDateTime } from '../lib/format'
 
 function runStatusClass(status: string): string {
@@ -41,7 +43,7 @@ export function RunsPage() {
   })
 
   if (isLoading) return <LoadingState label="Loading scrape health…" />
-  if (error || !data) return <ErrorState message={(error as Error)?.message ?? 'Failed to load runs'} />
+  if (error || !data) return <ErrorState message={errorMessage(error, 'Failed to load runs')} />
 
   const active = data.activeRun
 
@@ -95,7 +97,7 @@ export function RunsPage() {
           </div>
           {stopMutation.isError && (
             <div className="muted" style={{ marginTop: 8, fontSize: 12, color: 'var(--danger)' }}>
-              {(stopMutation.error as Error)?.message ?? 'Failed to stop scrape'}
+              {errorMessage(stopMutation.error, 'Failed to stop scrape')}
             </div>
           )}
         </Card>
@@ -105,7 +107,13 @@ export function RunsPage() {
         <Card>
           <div className="meta-label">Next scheduled run</div>
           <div style={{ marginTop: 8, fontSize: 20, fontWeight: 700 }}>{formatDateTime(data.nextScheduledAt)}</div>
-          <div className="muted" style={{ marginTop: 4 }}>Windows Task Scheduler (daily)</div>
+          <div className="muted" style={{ marginTop: 4 }}>
+            {data.nextScheduledAt ? (
+              <Link className="text-button" to="/settings">Change in Settings</Link>
+            ) : (
+              <Link className="text-button" to="/settings">Set a schedule</Link>
+            )}
+          </div>
         </Card>
         <Card>
           <div className="meta-label">Last successful run</div>

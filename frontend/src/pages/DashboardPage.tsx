@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { formatDistanceToNow } from 'date-fns'
@@ -25,6 +26,7 @@ import {
 } from 'recharts'
 import { api } from '../api'
 import { Card, ErrorState, KpiCard, LoadingState, StatusBadge } from '../components/ui'
+import { errorMessage } from '../lib/errors'
 import { categoryColor, formatDate, formatGel, shortCategory } from '../lib/format'
 
 const STATUS_COLORS = ['#c7000b', '#2768c9', '#7a52c7', '#b76e00', '#0f8a5f', '#667085', '#ef3340', '#2b69bf', '#c92a2a']
@@ -36,7 +38,9 @@ export function DashboardPage() {
   })
 
   if (isLoading) return <LoadingState label="Loading dashboard…" />
-  if (error || !data) return <ErrorState message={(error as Error)?.message ?? 'Failed to load stats'} />
+  if (error || !data) return <ErrorState message={errorMessage(error, 'Failed to load stats')} />
+
+  const closingSoonDays = data.closingSoonDays ?? 7
 
   const months = [...new Set(data.byMonth.map((m) => m.month))].sort()
   const categories = [...new Map(data.byCategory.map((c) => [c.categoryCode, c.categoryName])).entries()]
@@ -83,14 +87,14 @@ export function DashboardPage() {
           </div>
         </div>
         <div className="hero-score">
-          <div className="score-orbit" style={{ ['--score-pct' as string]: `${openPct}%` }}>
+          <div className="score-orbit" style={{ ['--score-pct']: `${openPct}%` } as CSSProperties}>
             <div>
               <strong>{openPct}%</strong>
               <span>Currently open</span>
             </div>
           </div>
           <p>
-            {data.openTenders} open · {data.closingWithin7Days} closing in 7 days
+            {data.openTenders} open · {data.closingWithin7Days} closing in {closingSoonDays} days
           </p>
         </div>
       </section>
@@ -111,9 +115,9 @@ export function DashboardPage() {
           icon={<FileSearch size={19} />}
         />
         <KpiCard
-          label="Closing in 7 days"
+          label={`Closing in ${closingSoonDays} days`}
           value={String(data.closingWithin7Days)}
-          hint="Act soon"
+          hint={`Next ${closingSoonDays} days`}
           tone="amber"
           icon={<CalendarClock size={19} />}
         />
@@ -320,14 +324,14 @@ export function DashboardPage() {
         eyebrow="Deadlines"
         title="Closing soon"
         action={
-          <Link className="text-button" to="/tenders?deadlinePreset=7d">
+          <Link className="text-button" to="/tenders?preset=7d">
             Open explorer
           </Link>
         }
       >
         {data.closingSoon.length === 0 ? (
           <div className="empty-state" style={{ minHeight: 100 }}>
-            No tenders closing in the next 7 days.
+            No tenders closing in the next {closingSoonDays} days.
           </div>
         ) : (
           <div className="table-wrap">

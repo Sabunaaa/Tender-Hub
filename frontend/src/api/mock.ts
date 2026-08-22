@@ -1,18 +1,69 @@
 import { addDays, formatISO } from 'date-fns'
+import { DEVICE_KEYWORD_ALIASES } from '../lib/tenderFilters'
 import { ALL_CPV_CATEGORIES } from './cpvCategories'
 import { MOCK_RUNS, MOCK_TENDERS, mockTrackedStore } from './fixtures'
 import type {
+  AppSettings,
   DashboardStats,
   DataSource,
   FilterOptions,
   Paginated,
   ScrapeHealth,
   ScrapeRun,
+  SettingsUpdate,
   TenderDetail,
   TenderFilters,
   TenderSummary,
   TrackedCategory,
+  Weekday,
 } from './types'
+
+const WEEKDAYS: Weekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+const JS_DAY_TO_WEEKDAY: Weekday[] = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+
+function mockNextScheduledAt(settings: Pick<AppSettings, 'scheduleEnabled' | 'scheduleTime' | 'scheduleDays'>): string | null {
+  if (!settings.scheduleEnabled || settings.scheduleDays.length === 0) return null
+  const [hours, minutes] = settings.scheduleTime.split(':').map(Number)
+  if (hours == null || minutes == null || Number.isNaN(hours) || Number.isNaN(minutes)) return null
+  const now = new Date()
+  for (let offset = 0; offset < 8; offset += 1) {
+    const candidate = new Date(now)
+    candidate.setDate(now.getDate() + offset)
+    candidate.setHours(hours, minutes, 0, 0)
+    if (candidate <= now) continue
+    const day = JS_DAY_TO_WEEKDAY[candidate.getDay()]
+    if (day && settings.scheduleDays.includes(day)) return formatISO(candidate)
+  }
+  return null
+}
+
+function withDerivedSettings(base: Omit<AppSettings, 'nextScheduledAt'>): AppSettings {
+  return {
+    ...base,
+    nextScheduledAt: mockNextScheduledAt(base),
+  }
+}
+
+let mockSettings: AppSettings = withDerivedSettings({
+  scheduleEnabled: true,
+  scheduleTime: '06:00',
+  scheduleDays: [...WEEKDAYS],
+  dailyLookbackDays: 3,
+  requestDelaySeconds: 1,
+  maxRequestsPerSecond: 2,
+  scrapeConcurrency: 4,
+  requestTimeoutSeconds: 60,
+  closingSoonDays: 7,
+  defaultPageSize: 20,
+  taskStatus: {
+    registered: true,
+    taskName: 'TenderDashboardDailyScrape',
+    state: 'Ready',
+    lastRunAt: MOCK_RUNS.find((r) => r.status === 'success')?.finishedAt ?? null,
+    lastTaskResult: 0,
+    message: 'Mock schedule is stored in memory only.',
+  },
+})
 
 function delay(ms = 180): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
@@ -46,12 +97,30 @@ function filterTenders(filters: TenderFilters): TenderDetail[] {
         t.description.toLowerCase().includes(q),
     )
   }
+  if (filters.keywords?.length) {
+    const terms = filters.keywords.flatMap((key) => DEVICE_KEYWORD_ALIASES[key] ?? [key])
+    items = items.filter((t) => {
+      const hay = [
+        t.title,
+        t.description,
+        t.additionalInfo,
+        t.amountOrVolume,
+        t.specText,
+        ...t.documentSections.flatMap((s) => [s.title, s.body]),
+      ]
+        .filter(Boolean)
+        .join('\n')
+        .toLowerCase()
+      return terms.some((term) => hay.includes(term.toLowerCase()))
+    })
+  }
   if (filters.categoryCodes?.length) {
     const set = new Set(filters.categoryCodes)
     items = items.filter((t) => set.has(t.categoryCode))
   }
-  if (filters.cpvCode) {
-    items = items.filter((t) => t.cpvCodes.some((c) => c.code.includes(filters.cpvCode!)))
+  const cpvCode = filters.cpvCode
+  if (cpvCode) {
+    items = items.filter((t) => t.cpvCodes.some((c) => c.code.includes(cpvCode)))
   }
   if (filters.status?.length) {
     const set = new Set(filters.status)
@@ -65,36 +134,58 @@ function filterTenders(filters: TenderFilters): TenderDetail[] {
     const b = filters.buyer.toLowerCase()
     items = items.filter((t) => t.buyer.toLowerCase().includes(b))
   }
-  if (filters.dateFrom) items = items.filter((t) => t.announcementDate >= filters.dateFrom!)
-  if (filters.dateTo) items = items.filter((t) => t.announcementDate <= filters.dateTo!)
-  if (filters.deadlineFrom) {
-    items = items.filter((t) => t.bidDeadline && t.bidDeadline >= filters.deadlineFrom!)
+  const dateFrom = filters.dateFrom
+  const dateTo = filters.dateTo
+  const deadlineFrom = filters.deadlineFrom
+  const deadlineTo = filters.deadlineTo
+  if (dateFrom) items = items.filter((t) => t.announcementDate >= dateFrom)
+  if (dateTo) items = items.filter((t) => t.announcementDate <= dateTo)
+  if (deadlineFrom) {
+    items = items.filter((t) => t.bidDeadline && t.bidDeadline >= deadlineFrom)
   }
-  if (filters.deadlineTo) {
-    items = items.filter((t) => t.bidDeadline && t.bidDeadline <= filters.deadlineTo!)
+  if (deadlineTo) {
+    items = items.filter((t) => t.bidDeadline && t.bidDeadline <= deadlineTo)
   }
   if (filters.withinDeadline) {
     const today = formatISO(new Date(), { representation: 'date' })
     items = items.filter((t) => t.bidDeadline && t.bidDeadline.slice(0, 10) >= today)
   }
-  if (filters.amountFrom != null) {
-    items = items.filter((t) => (t.estimatedValue ?? 0) >= filters.amountFrom!)
+  const amountFrom = filters.amountFrom
+  const amountTo = filters.amountTo
+  const bidderCountMin = filters.bidderCountMin
+  const bidderCountMax = filters.bidderCountMax
+  if (amountFrom != null) {
+    items = items.filter((t) => (t.estimatedValue ?? 0) >= amountFrom)
   }
-  if (filters.amountTo != null) {
-    items = items.filter((t) => (t.estimatedValue ?? 0) <= filters.amountTo!)
+  if (amountTo != null) {
+    items = items.filter((t) => (t.estimatedValue ?? 0) <= amountTo)
   }
-  if (filters.bidderCountMin != null) {
-    items = items.filter((t) => t.bidderCount >= filters.bidderCountMin!)
+  if (bidderCountMin != null) {
+    items = items.filter((t) => t.bidderCount >= bidderCountMin)
   }
-  if (filters.bidderCountMax != null) {
-    items = items.filter((t) => t.bidderCount <= filters.bidderCountMax!)
+  if (bidderCountMax != null) {
+    items = items.filter((t) => t.bidderCount <= bidderCountMax)
   }
 
   const sortBy = filters.sortBy ?? 'announcementDate'
   const sortDir = filters.sortDir ?? 'desc'
+  const sortValue = (t: TenderDetail): string | number | null => {
+    switch (sortBy) {
+      case 'announcementDate':
+        return t.announcementDate
+      case 'bidDeadline':
+        return t.bidDeadline
+      case 'estimatedValue':
+        return t.estimatedValue
+      case 'status':
+        return t.status
+      case 'buyer':
+        return t.buyer
+    }
+  }
   items.sort((a, b) => {
-    const av = a[sortBy]
-    const bv = b[sortBy]
+    const av = sortValue(a)
+    const bv = sortValue(b)
     if (av == null && bv == null) return 0
     if (av == null) return 1
     if (bv == null) return -1
@@ -118,11 +209,12 @@ export const mockApi: DataSource = {
     const tracked = new Set(mockTrackedStore.list().filter((c) => c.enabled).map((c) => c.code))
     const items = MOCK_TENDERS.filter((t) => tracked.has(t.categoryCode))
     const today = formatISO(new Date(), { representation: 'date' })
-    const in7 = formatISO(addDays(new Date(), 7), { representation: 'date' })
+    const horizon = mockSettings.closingSoonDays
+    const inHorizon = formatISO(addDays(new Date(), horizon), { representation: 'date' })
 
     const openTenders = items.filter((t) => OPEN_STATUSES.has(t.status)).length
     const closingSoon = items
-      .filter((t) => t.bidDeadline && t.bidDeadline >= today && t.bidDeadline <= in7 && OPEN_STATUSES.has(t.status))
+      .filter((t) => t.bidDeadline && t.bidDeadline >= today && t.bidDeadline <= inHorizon && OPEN_STATUSES.has(t.status))
       .sort((a, b) => (a.bidDeadline ?? '').localeCompare(b.bidDeadline ?? ''))
 
     const values = items.map((t) => t.estimatedValue ?? 0)
@@ -176,6 +268,7 @@ export const mockApi: DataSource = {
       totalTenders: items.length,
       openTenders,
       closingWithin7Days: closingSoon.length,
+      closingSoonDays: horizon,
       totalEstimatedValue,
       averageEstimatedValue: items.length ? totalEstimatedValue / items.length : 0,
       currency: 'GEL',
@@ -327,7 +420,7 @@ export const mockApi: DataSource = {
     return {
       runs: [...MOCK_RUNS],
       activeRun: active,
-      nextScheduledAt: formatISO(addDays(new Date(), 1)),
+      nextScheduledAt: mockSettings.nextScheduledAt,
       lastSuccessAt: success?.finishedAt ?? null,
     }
   },
@@ -359,5 +452,62 @@ export const mockApi: DataSource = {
       throw new Error('This run has no categories to resume')
     }
     return mockApi.triggerBackfill(categoryId, { dateFrom: previous.dateFrom ?? undefined })
+  },
+
+  async triggerDailyScrape() {
+    await delay(200)
+    const run: ScrapeRun = {
+      id: MOCK_RUNS.length + 1,
+      startedAt: formatISO(new Date()),
+      finishedAt: formatISO(new Date()),
+      status: 'success',
+      mode: 'daily',
+      categories: mockTrackedStore.list().map((c) => c.code),
+      tendersFound: 8,
+      tendersUpserted: 2,
+      tendersSkipped: 6,
+      tendersProcessed: 8,
+      progressTotal: 8,
+      categoriesDone: mockTrackedStore.list().length,
+      categoriesTotal: mockTrackedStore.list().length,
+      currentCategory: null,
+      progressPercent: 100,
+      dateFrom: formatISO(addDays(new Date(), -mockSettings.dailyLookbackDays), { representation: 'date' }),
+      dateTo: formatISO(new Date(), { representation: 'date' }),
+      categoryIds: mockTrackedStore.list().map((c) => c.id),
+      resumedFrom: null,
+      canResume: false,
+      errors: [],
+    }
+    MOCK_RUNS.unshift(run)
+    return { ok: true, runId: run.id, message: 'Daily scrape started' }
+  },
+
+  async getSettings() {
+    await delay(80)
+    return { ...mockSettings, taskStatus: { ...mockSettings.taskStatus } }
+  },
+
+  async updateSettings(patch: SettingsUpdate) {
+    await delay(160)
+    const nextDays = patch.scheduleDays ?? mockSettings.scheduleDays
+    if ((patch.scheduleEnabled ?? mockSettings.scheduleEnabled) && nextDays.length === 0) {
+      throw new Error('Pick at least one weekday to enable the schedule.')
+    }
+    const next = withDerivedSettings({
+      ...mockSettings,
+      ...patch,
+      scheduleDays: nextDays,
+      taskStatus: {
+        ...mockSettings.taskStatus,
+        registered: Boolean(patch.scheduleEnabled ?? mockSettings.scheduleEnabled),
+        state: (patch.scheduleEnabled ?? mockSettings.scheduleEnabled) ? 'Ready' : 'Disabled',
+        message: (patch.scheduleEnabled ?? mockSettings.scheduleEnabled)
+          ? 'Mock schedule updated in memory.'
+          : 'Mock schedule is off.',
+      },
+    })
+    mockSettings = next
+    return { ...mockSettings, taskStatus: { ...mockSettings.taskStatus } }
   },
 }

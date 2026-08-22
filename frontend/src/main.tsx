@@ -7,7 +7,10 @@ import App from './App.tsx'
 document.documentElement.classList.remove('dark')
 document.documentElement.style.colorScheme = 'light'
 
-createRoot(document.getElementById('root')!).render(
+const root = document.getElementById('root')
+if (!root) throw new Error('Missing #root element')
+
+createRoot(root).render(
   <StrictMode>
     <App />
   </StrictMode>,

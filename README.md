@@ -48,34 +48,42 @@ Daily incremental (last 3 days, refreshes status changes):
 .\.venv\Scripts\python.exe -m tender_scraper.cli daily
 ```
 
-### 3. Start API
+Existing tenders skip the docs tab on later runs. To fill searchable text from `ტექნიკური` attachments already stored in the DB (no full backfill):
 
 ```powershell
 $env:PYTHONPATH = "$PWD\backend"
-.\.venv\Scripts\python.exe -m tender_scraper.cli serve
+.\.venv\Scripts\python.exe -m tender_scraper.cli extract-specs
 ```
 
-API: http://127.0.0.1:8000 — docs at `/docs`
+New scrapes do this automatically when they fetch the docs tab.
 
-### 4. Start frontend
+### 3. Build the UI and start the app (one URL)
 
 ```powershell
 cd frontend
 npm install
-npm run dev
+npm run build
+cd ..
+
+$env:PYTHONPATH = "$PWD\backend"
+.\.venv\Scripts\python.exe -m tender_scraper.cli serve
 ```
 
-UI: http://127.0.0.1:5173
+Open **http://127.0.0.1:8000** — FastAPI serves the API and the React app together.
 
-Or run both via `scripts\dev.bat`.
+For local UI development with hot reload, run `scripts\dev.bat` instead (API on :8000, Vite on :5173).
 
-### 5. Register daily schedule
+### 4. Schedule scrapes
+
+Open **Settings** in the UI (`/settings`) and pick any days and time. Saving creates or updates the Windows task `TenderDashboardDailyScrape`. You can also turn the schedule off there, or run a scrape immediately.
+
+From a shell:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\register_task.ps1 -Time 06:00
+powershell -ExecutionPolicy Bypass -File .\scripts\register_task.ps1 -Time 18:30 -Days "Monday,Wednesday,Friday"
 ```
 
-This creates task `TenderDashboardDailyScrape` with “start when available” so a missed run catches up after reboot.
+The task uses “start when available” so a missed run catches up after reboot.
 
 ## Frontend data mode
 
@@ -84,7 +92,7 @@ This creates task `TenderDashboardDailyScrape` with “start when available” s
 - `VITE_USE_MOCK=true` — demo fixtures (~150 fake tenders), no backend needed
 - `VITE_USE_MOCK=false` — live API (default)
 
-Vite proxies `/api` → `http://127.0.0.1:8000`.
+Vite proxies `/api` → `http://127.0.0.1:8000` during `npm run dev`. After `npm run build`, the same origin serves both.
 
 ## Pages
 
@@ -95,6 +103,7 @@ Vite proxies `/api` → `http://127.0.0.1:8000`.
 | `/tenders/:id` | Full detail, docs, bids, chronology |
 | `/categories` | Add/remove tracked CPV categories, trigger backfill |
 | `/runs` | Scrape health / run history |
+| `/settings` | Schedule, scraper politeness, dashboard defaults |
 
 ## Project layout
 
@@ -118,6 +127,6 @@ scripts/                  # Task registration + dev helpers
 | Issue | Fix |
 |-------|-----|
 | Empty dashboard | Run `backfill` then restart API |
-| Frontend API errors | Ensure API is on port 8000 and `VITE_USE_MOCK=false` |
+| Frontend API errors | Ensure the app is on port 8000 (`cli serve`) and you built with `VITE_USE_MOCK=false` |
 | Scrape timeouts | Increase `TENDER_REQUEST_TIMEOUT`; check network |
 | Task did not run | `Get-ScheduledTaskInfo -TaskName TenderDashboardDailyScrape` |

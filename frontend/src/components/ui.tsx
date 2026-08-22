@@ -90,3 +90,34 @@ export function ErrorState({ message }: { message: string }) {
 export function EmptyState({ message }: { message: string }) {
   return <div className="empty-state">{message}</div>
 }
+
+export function FilterSection({
+  title,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string
+  open: boolean
+  onToggle: () => void
+  children: ReactNode
+}) {
+  return (
+    <div className={`filter-section${open ? ' open' : ''}`}>
+      <button
+        type="button"
+        className="filter-section-toggle"
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        <span className="filter-label">{title}</span>
+        <span className="filter-caret" aria-hidden="true">
+          {open ? '▴' : '▾'}
+        </span>
+      </button>
+      <div className="filter-section-body" hidden={!open}>
+        {children}
+      </div>
+    </div>
+  )
+}

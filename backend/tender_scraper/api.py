@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 from datetime import date, timedelta
-from pathlib import Path
 from typing import Annotated
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel, Field
 
 from tender_scraper import config
 from tender_scraper.cancel import request_stop
@@ -17,30 +17,86 @@ from tender_scraper.cpv_seed import seed_cpv_categories
 from tender_scraper.db import init_db
 from tender_scraper.pipeline import ScrapePipeline, run_backfill
 from tender_scraper.queries import filter_options, get_stats, get_tender, list_tenders
-from tender_scraper.repository import Repository
+from tender_scraper.repository import ActiveScrapeError, Repository
+from tender_scraper.access import (
+    ACCESS_COOKIE,
+    ACCESS_COOKIE_MAX_AGE,
+    access_cookie_value,
+    is_valid_access_cookie,
+    verify_access_password,
+)
+from tender_scraper.settings import apply_to_config, load_settings, next_scheduled_iso, to_payload, update_settings
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 
-app = FastAPI(title="Tender Dashboard API", version="1.0.0")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
+log = logging.getLogger(__name__)
 repo = Repository()
 
 
-@app.on_event("startup")
-def on_startup() -> None:
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
     config.ensure_dirs()
+    apply_to_config()
     init_db()
     seed_cpv_categories(repo)
+    reaped = repo.fail_stale_running_runs()
+    if reaped:
+        log.warning("Marked stale scrape runs as failed: %s", reaped)
+    yield
+
+
+app = FastAPI(title="Tender Dashboard API", version="1.0.0", lifespan=lifespan)
+
+_PUBLIC_API_PATHS = {"/api/auth", "/api/health"}
+_COOKIE_OPTS = {
+    "httponly": True,
+    "samesite": "strict",
+    "path": "/",
+    "secure": False,
+    "max_age": ACCESS_COOKIE_MAX_AGE,
+}
+
+
+@app.middleware("http")
+async def require_access(request: Request, call_next):
+    path = request.url.path
+    if not path.startswith("/api/") or path in _PUBLIC_API_PATHS:
+        return await call_next(request)
+    if is_valid_access_cookie(request.cookies.get(ACCESS_COOKIE)):
+        return await call_next(request)
+    return JSONResponse({"detail": "Password required."}, status_code=401)
+
+
+class PasswordBody(BaseModel):
+    password: str = ""
+
+
+@app.get("/api/auth")
+def auth_status(request: Request):
+    ok = is_valid_access_cookie(request.cookies.get(ACCESS_COOKIE))
+    response = JSONResponse({"ok": ok})
+    if ok:
+        response.set_cookie(ACCESS_COOKIE, access_cookie_value(), **_COOKIE_OPTS)
+    return response
+
+
+@app.post("/api/auth")
+def auth_unlock(body: PasswordBody):
+    if not verify_access_password(body.password):
+        raise HTTPException(401, "Incorrect password.")
+    response = JSONResponse({"ok": True})
+    response.set_cookie(ACCESS_COOKIE, access_cookie_value(), **_COOKIE_OPTS)
+    return response
+
+
+@app.delete("/api/auth")
+def auth_lock():
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(ACCESS_COOKIE, path="/")
+    return response
 
 
 class AddCategoryBody(BaseModel):
@@ -50,6 +106,19 @@ class AddCategoryBody(BaseModel):
 class BackfillBody(BaseModel):
     dateFrom: date | None = None
     days: int | None = None
+
+
+class SettingsUpdateBody(BaseModel):
+    scheduleEnabled: bool | None = None
+    scheduleTime: str | None = None
+    scheduleDays: list[str] | None = None
+    dailyLookbackDays: int | None = Field(default=None, ge=1, le=30)
+    requestDelaySeconds: float | None = Field(default=None, ge=0.2, le=10)
+    maxRequestsPerSecond: float | None = Field(default=None, ge=0.2, le=10)
+    scrapeConcurrency: int | None = Field(default=None, ge=1, le=8)
+    requestTimeoutSeconds: float | None = Field(default=None, ge=10, le=180)
+    closingSoonDays: int | None = Field(default=None, ge=1, le=30)
+    defaultPageSize: int | None = Field(default=None, ge=5, le=100)
 
 
 @app.get("/api/health")
@@ -65,6 +134,7 @@ def stats():
 @app.get("/api/tenders")
 def tenders(
     q: str | None = None,
+    keywords: Annotated[list[str] | None, Query()] = None,
     categoryCodes: Annotated[list[str] | None, Query()] = None,
     cpvCode: str | None = None,
     status: Annotated[list[str] | None, Query()] = None,
@@ -87,6 +157,7 @@ def tenders(
     return list_tenders(
         {
             "q": q,
+            "keywords": keywords,
             "categoryCodes": categoryCodes,
             "cpvCode": cpvCode,
             "status": status,
@@ -179,14 +250,17 @@ def backfill_category(category_id: int, background: BackgroundTasks, body: Backf
 
     categories = [c["code"] for c in tracked]
     effective_from = date_from or (date.today() - timedelta(days=days or 365))
-    run_id = repo.start_run(
-        "backfill",
-        categories,
-        categories_total=1,
-        date_from=effective_from.isoformat(),
-        date_to=date.today().isoformat(),
-        category_ids=[category_id],
-    )
+    try:
+        run_id = repo.start_run(
+            "backfill",
+            categories,
+            categories_total=1,
+            date_from=effective_from.isoformat(),
+            date_to=date.today().isoformat(),
+            category_ids=[category_id],
+        )
+    except ActiveScrapeError as exc:
+        raise HTTPException(409, str(exc)) from exc
     if categories:
         repo.update_run_progress(run_id, current_category=categories[0], categories_total=1)
     background.add_task(_run_backfill_job, category_id, effective_from, days, run_id)
@@ -223,15 +297,18 @@ def resume_run(run_id: int, background: BackgroundTasks):
     if not tracked:
         raise HTTPException(400, "The categories for this run are no longer tracked")
 
-    new_run_id = repo.start_run(
-        mode,
-        [c["code"] for c in tracked],
-        categories_total=len(tracked),
-        date_from=date_from.isoformat(),
-        date_to=date_to.isoformat(),
-        category_ids=category_ids,
-        resumed_from=run_id,
-    )
+    try:
+        new_run_id = repo.start_run(
+            mode,
+            [c["code"] for c in tracked],
+            categories_total=len(tracked),
+            date_from=date_from.isoformat(),
+            date_to=date_to.isoformat(),
+            category_ids=category_ids,
+            resumed_from=run_id,
+        )
+    except ActiveScrapeError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
     def job():
         ScrapePipeline().run(
@@ -254,12 +331,10 @@ def runs():
     run_list = repo.list_runs()
     active = repo.get_active_run()
     success = next((r for r in run_list if r["status"] == "success"), None)
-    # Next scheduled: tomorrow 06:00 local (informational)
-    tomorrow = date.today() + timedelta(days=1)
     return {
         "runs": run_list,
         "activeRun": active,
-        "nextScheduledAt": f"{tomorrow.isoformat()}T06:00:00",
+        "nextScheduledAt": next_scheduled_iso(),
         "lastSuccessAt": success["finishedAt"] if success else None,
     }
 
@@ -288,14 +363,17 @@ def scrape_daily(background: BackgroundTasks):
     if not tracked:
         raise HTTPException(400, "No tracked categories enabled")
     categories = [c["code"] for c in tracked]
-    date_from = date.today() - timedelta(days=config.DAILY_LOOKBACK_DAYS)
-    run_id = repo.start_run(
-        "daily",
-        categories,
-        categories_total=len(tracked),
-        date_from=date_from.isoformat(),
-        date_to=date.today().isoformat(),
-    )
+    date_from = date.today() - timedelta(days=load_settings().daily_lookback_days)
+    try:
+        run_id = repo.start_run(
+            "daily",
+            categories,
+            categories_total=len(tracked),
+            date_from=date_from.isoformat(),
+            date_to=date.today().isoformat(),
+        )
+    except ActiveScrapeError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
     def job():
         ScrapePipeline().run(
@@ -307,3 +385,44 @@ def scrape_daily(background: BackgroundTasks):
 
     background.add_task(job)
     return {"ok": True, "message": "Daily scrape started", "runId": run_id}
+
+
+@app.get("/api/settings")
+def get_settings():
+    return to_payload()
+
+
+@app.put("/api/settings")
+def put_settings(body: SettingsUpdateBody):
+    patch = body.model_dump(exclude_none=True)
+    if not patch:
+        return to_payload()
+    try:
+        return update_settings(patch)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+def _attach_frontend() -> None:
+    dist = config.FRONTEND_DIR.resolve()
+    index = dist / "index.html"
+    if not index.is_file():
+        log.warning("No frontend build at %s — run npm run build in frontend/", dist)
+        return
+
+    @app.get("/{full_path:path}")
+    async def spa(full_path: str):
+        if full_path == "api" or full_path.startswith("api/"):
+            raise HTTPException(404)
+        if full_path:
+            target = (dist / full_path).resolve()
+            try:
+                target.relative_to(dist)
+            except ValueError:
+                raise HTTPException(404)
+            if target.is_file():
+                return FileResponse(target)
+        return FileResponse(index, headers={"Cache-Control": "no-cache"})
+
+
+_attach_frontend()

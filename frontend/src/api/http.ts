@@ -1,4 +1,5 @@
 import type {
+  AppSettings,
   CpvCategory,
   DashboardStats,
   DataSource,
@@ -14,9 +15,13 @@ import type {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
     ...init,
   })
+  if (res.status === 401) {
+    window.dispatchEvent(new Event('tender-lock'))
+  }
   if (!res.ok) {
     const text = await res.text()
     // FastAPI reports errors as {"detail": "..."}; show that rather than raw JSON.
@@ -57,6 +62,7 @@ function toQuery(filters: TenderFilters): string {
   filters.categoryCodes?.forEach((c) => params.append('categoryCodes', c))
   filters.status?.forEach((c) => params.append('status', c))
   filters.procurementType?.forEach((c) => params.append('procurementType', c))
+  filters.keywords?.forEach((k) => params.append('keywords', k))
   return params.toString()
 }
 
@@ -86,4 +92,12 @@ export const httpApi: DataSource = {
   getScrapeHealth: () => request<ScrapeHealth>('/api/runs'),
   stopScrape: () => request<{ ok: boolean; run: ScrapeRun | null }>('/api/scrape/stop', { method: 'POST' }),
   resumeRun: (runId) => request<ScrapeRun>(`/api/runs/${runId}/resume`, { method: 'POST' }),
+  triggerDailyScrape: () =>
+    request<{ ok: boolean; runId: number; message: string }>('/api/scrape/daily', { method: 'POST' }),
+  getSettings: () => request<AppSettings>('/api/settings'),
+  updateSettings: (patch) =>
+    request<AppSettings>('/api/settings', {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    }),
 }

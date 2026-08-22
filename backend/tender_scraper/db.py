@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS tenders (
     bid_reduction_step REAL,
     amount_or_volume TEXT,
     additional_info TEXT,
+    spec_text TEXT,
     scraped_at TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -194,6 +195,7 @@ def init_db(db_path: Path | None = None) -> None:
         _ensure_column(conn, "scrape_runs", "date_to", "date_to TEXT")
         _ensure_column(conn, "scrape_runs", "category_ids", "category_ids TEXT")
         _ensure_column(conn, "scrape_runs", "resumed_from", "resumed_from INTEGER")
+        _ensure_column(conn, "tenders", "spec_text", "spec_text TEXT")
         for cat_id, code, name in DEFAULT_TRACKED:
             conn.execute(
                 """

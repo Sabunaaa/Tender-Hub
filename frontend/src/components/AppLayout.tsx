@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   Menu,
   Search,
+  Settings,
   X,
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
@@ -20,6 +21,7 @@ const nav = [
   { to: '/tenders', label: 'Tenders', icon: Search, eyebrow: 'Explorer', title: 'Procurement tenders' },
   { to: '/categories', label: 'Categories', icon: FolderTree, eyebrow: 'Tracking', title: 'CPV categories' },
   { to: '/runs', label: 'Scrape Health', icon: Activity, eyebrow: 'Operations', title: 'Scrape health' },
+  { to: '/settings', label: 'Settings', icon: Settings, eyebrow: 'Workspace', title: 'Settings' },
 ]
 
 function ScrapeStatusBadge() {
@@ -98,7 +100,16 @@ export function AppLayout() {
     const match = nav.find((item) =>
       item.end ? location.pathname === '/' : location.pathname.startsWith(item.to),
     )
-    return match ?? nav[0]!
+    return (
+      match ?? {
+        to: '/',
+        label: 'Dashboard',
+        icon: LayoutDashboard,
+        end: true,
+        eyebrow: 'Overview',
+        title: 'Tender intelligence',
+      }
+    )
   }, [location.pathname])
 
   return (

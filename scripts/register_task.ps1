@@ -1,10 +1,11 @@
-# Register a daily Windows Scheduled Task for the tender scraper.
+# Register, update, or remove the Windows Scheduled Task for the tender scraper.
 # Run from an elevated PowerShell if you want the task to run whether logged on or not.
-# Default: daily at 06:00 local time, catch up if missed.
 
 param(
     [string]$TaskName = "TenderDashboardDailyScrape",
-    [string]$Time = "06:00"
+    [string]$Time = "06:00",
+    [string]$Days = "Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday",
+    [switch]$Unregister
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,15 +14,53 @@ $Python = Join-Path $Root ".venv\Scripts\python.exe"
 $Backend = Join-Path $Root "backend"
 $LogDir = Join-Path $Root "data\logs"
 
+if ($Unregister) {
+    $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    if ($existing) {
+        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+        Write-Host "Removed scheduled task '$TaskName'"
+    } else {
+        Write-Host "Scheduled task '$TaskName' was not registered"
+    }
+    exit 0
+}
+
 if (-not (Test-Path $Python)) {
     throw "Python venv not found at $Python. Create it first."
 }
 
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
+$dayNames = @($Days.Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+if ($dayNames.Count -eq 0) {
+    throw "At least one weekday is required."
+}
+
+[DayOfWeek[]]$dayEnums = foreach ($name in $dayNames) {
+    [DayOfWeek]$name
+}
+
+$allDays = @(
+    [DayOfWeek]::Monday,
+    [DayOfWeek]::Tuesday,
+    [DayOfWeek]::Wednesday,
+    [DayOfWeek]::Thursday,
+    [DayOfWeek]::Friday,
+    [DayOfWeek]::Saturday,
+    [DayOfWeek]::Sunday
+)
+$isDaily = ($dayEnums.Count -eq 7) -and -not (@($allDays | Where-Object { $dayEnums -notcontains $_ }))
+
+if ($isDaily) {
+    $Trigger = New-ScheduledTaskTrigger -Daily -At $Time
+    $cadence = "daily"
+} else {
+    $Trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek $dayEnums -At $Time
+    $cadence = ($dayEnums | ForEach-Object { $_.ToString().Substring(0, 3) }) -join ", "
+}
+
 $Arg = "-m tender_scraper.cli daily"
 $Action = New-ScheduledTaskAction -Execute $Python -Argument $Arg -WorkingDirectory $Backend
-$Trigger = New-ScheduledTaskTrigger -Daily -At $Time
 $Settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
@@ -29,7 +68,9 @@ $Settings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit (New-TimeSpan -Hours 2)
 
 # Prefer current user interactive run so no password prompt is required.
-$Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+# Bare $env:USERNAME is rejected as UserId on some Windows installs; DOMAIN\user works.
+$UserId = if ($env:USERDOMAIN) { "$env:USERDOMAIN\$env:USERNAME" } else { [string](whoami) }
+$Principal = New-ScheduledTaskPrincipal -UserId $UserId -LogonType Interactive -RunLevel Limited
 
 Register-ScheduledTask `
     -TaskName $TaskName `
@@ -37,14 +78,9 @@ Register-ScheduledTask `
     -Trigger $Trigger `
     -Settings $Settings `
     -Principal $Principal `
-    -Description "Daily scrape of Georgian SPA tenders for tracked CPV categories" `
+    -Description "Scrape of Georgian SPA tenders for tracked CPV categories ($cadence at $Time)" `
     -Force | Out-Null
 
-Write-Host "Registered scheduled task '$TaskName' to run daily at $Time"
+Write-Host "Registered scheduled task '$TaskName' ($cadence at $Time)"
 Write-Host "Python: $Python"
 Write-Host "WorkingDirectory: $Backend"
-Write-Host ""
-Write-Host "Useful commands:"
-Write-Host "  Get-ScheduledTask -TaskName '$TaskName'"
-Write-Host "  Start-ScheduledTask -TaskName '$TaskName'"
-Write-Host "  Unregister-ScheduledTask -TaskName '$TaskName' -Confirm:`$false"

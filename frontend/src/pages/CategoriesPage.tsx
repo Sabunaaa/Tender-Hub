@@ -5,6 +5,7 @@ import { Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { api } from '../api'
 import type { TrackedCategory } from '../api'
 import { Card, ErrorState, LoadingState, PageHeader } from '../components/ui'
+import { errorMessage } from '../lib/errors'
 import { formatDateTime } from '../lib/format'
 
 function defaultBackfillFrom(): string {
@@ -101,7 +102,7 @@ export function CategoriesPage() {
               onChange={(e) => setQuery(e.target.value)}
             />
             {allQuery.isLoading && <LoadingState />}
-            {allQuery.error && <ErrorState message={(allQuery.error as Error).message} />}
+            {allQuery.error && <ErrorState message={errorMessage(allQuery.error, 'Failed to load categories')} />}
             <div className="picker-list">
               {filtered.map((c) => (
                 <button
@@ -128,7 +129,7 @@ export function CategoriesPage() {
       )}
 
       {trackedQuery.isLoading && <LoadingState />}
-      {trackedQuery.error && <ErrorState message={(trackedQuery.error as Error).message} />}
+      {trackedQuery.error && <ErrorState message={errorMessage(trackedQuery.error, 'Failed to load tracked categories')} />}
 
       {trackedQuery.data && (
         <div className="category-grid">
@@ -235,7 +236,7 @@ export function CategoriesPage() {
             </div>
             {backfillMutation.isError && (
               <div style={{ marginTop: 10, fontSize: 12, color: 'var(--danger)' }}>
-                {(backfillMutation.error as Error)?.message ?? 'Failed to start backfill'}
+                {errorMessage(backfillMutation.error, 'Failed to start backfill')}
               </div>
             )}
             <div className="modal-actions">

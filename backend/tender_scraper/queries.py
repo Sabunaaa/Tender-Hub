@@ -6,7 +6,9 @@ from datetime import date, timedelta
 from typing import Any
 
 from .db import get_connection
+from .keywords import keyword_clause
 from .repository import Repository
+from .settings import load_settings
 
 
 OPEN_STATUSES = (
@@ -65,6 +67,10 @@ def list_tenders(filters: dict[str, Any], db_path=None) -> dict[str, Any]:
         )
         q = f"%{filters['q']}%"
         params.extend([q, q, q, q])
+    kw_sql, kw_params = keyword_clause(filters.get("keywords"))
+    if kw_sql:
+        clauses.append(kw_sql)
+        params.extend(kw_params)
     if filters.get("categoryCodes"):
         placeholders = ",".join("?" * len(filters["categoryCodes"]))
         clauses.append(f"category_code IN ({placeholders})")
@@ -193,6 +199,7 @@ def get_tender(app_id: int, db_path=None) -> dict[str, Any] | None:
             "bidReductionStep": r["bid_reduction_step"],
             "amountOrVolume": r["amount_or_volume"],
             "additionalInfo": r["additional_info"],
+            "specText": (r["spec_text"] or "") if "spec_text" in r.keys() else "",
             "cpvCodes": [{"code": c["code"], "name": c["name"] or ""} for c in cpv],
             "documentSections": document_sections,
             "attachments": [
@@ -287,11 +294,13 @@ def get_stats(db_path=None) -> dict[str, Any]:
             "SELECT code FROM tracked_categories WHERE enabled=1"
         ).fetchall()
         codes = [r["code"] for r in tracked]
+        horizon = load_settings().closing_soon_days
         if not codes:
             return {
                 "totalTenders": 0,
                 "openTenders": 0,
                 "closingWithin7Days": 0,
+                "closingSoonDays": horizon,
                 "totalEstimatedValue": 0,
                 "averageEstimatedValue": 0,
                 "currency": "GEL",
@@ -304,73 +313,133 @@ def get_stats(db_path=None) -> dict[str, Any]:
             }
         placeholders = ",".join("?" * len(codes))
         where = f"WHERE category_code IN ({placeholders})"
-        rows = conn.execute(f"SELECT * FROM tenders {where}", codes).fetchall()
-
         today = date.today().isoformat()
-        in7 = (date.today() + timedelta(days=7)).isoformat()
-        open_count = sum(1 for r in rows if r["status"] in OPEN_STATUSES)
-        closing = [
-            r
-            for r in rows
-            if r["bid_deadline"]
-            and r["bid_deadline"][:10] >= today
-            and r["bid_deadline"][:10] <= in7
-            and r["status"] in OPEN_STATUSES
-        ]
-        closing.sort(key=lambda r: r["bid_deadline"] or "")
-        values = [r["estimated_value"] or 0 for r in rows]
-        total_value = sum(values)
+        horizon_end = (date.today() + timedelta(days=horizon)).isoformat()
+        open_ph = ",".join("?" * len(OPEN_STATUSES))
 
-        month_map: dict[tuple[str, str], dict] = {}
-        cat_map: dict[str, dict] = {}
-        status_map: dict[str, int] = {}
-        buyer_map: dict[str, dict] = {}
-        for r in rows:
-            month = (r["announcement_date"] or "")[:7]
-            key = (month, r["category_code"] or "")
-            if month:
-                cur = month_map.setdefault(
-                    key,
-                    {
-                        "month": month,
-                        "categoryCode": r["category_code"],
-                        "categoryName": r["category_name"],
-                        "count": 0,
-                        "value": 0,
-                    },
-                )
-                cur["count"] += 1
-                cur["value"] += r["estimated_value"] or 0
-            code = r["category_code"] or ""
-            cur = cat_map.setdefault(
-                code,
-                {
-                    "categoryCode": code,
-                    "categoryName": r["category_name"] or "",
-                    "count": 0,
-                    "value": 0,
-                },
+        totals = conn.execute(
+            f"""
+            SELECT
+                COUNT(*) AS total,
+                COALESCE(SUM(COALESCE(estimated_value, 0)), 0) AS total_value,
+                SUM(CASE WHEN status IN ({open_ph}) THEN 1 ELSE 0 END) AS open_count,
+                SUM(CASE
+                    WHEN bid_deadline IS NOT NULL
+                     AND substr(bid_deadline, 1, 10) >= ?
+                     AND substr(bid_deadline, 1, 10) <= ?
+                     AND status IN ({open_ph})
+                    THEN 1 ELSE 0 END) AS closing_count
+            FROM tenders {where}
+            """,
+            [*OPEN_STATUSES, today, horizon_end, *OPEN_STATUSES, *codes],
+        ).fetchone()
+        total = int(totals["total"] or 0)
+        total_value = float(totals["total_value"] or 0)
+
+        by_month = [
+            {
+                "month": r["month"],
+                "categoryCode": r["category_code"],
+                "categoryName": r["category_name"],
+                "count": r["count"],
+                "value": float(r["value"] or 0),
+            }
+            for r in conn.execute(
+                f"""
+                SELECT
+                    substr(announcement_date, 1, 7) AS month,
+                    category_code,
+                    category_name,
+                    COUNT(*) AS count,
+                    COALESCE(SUM(COALESCE(estimated_value, 0)), 0) AS value
+                FROM tenders {where}
+                  AND announcement_date IS NOT NULL
+                  AND announcement_date != ''
+                GROUP BY substr(announcement_date, 1, 7), category_code
+                ORDER BY month
+                """,
+                codes,
             )
-            cur["count"] += 1
-            cur["value"] += r["estimated_value"] or 0
-            status_map[r["status"] or "Unknown"] = status_map.get(r["status"] or "Unknown", 0) + 1
-            buyer = r["buyer"] or "Unknown"
-            b = buyer_map.setdefault(buyer, {"buyer": buyer, "count": 0, "value": 0})
-            b["count"] += 1
-            b["value"] += r["estimated_value"] or 0
+        ]
+        by_category = [
+            {
+                "categoryCode": r["category_code"] or "",
+                "categoryName": r["category_name"] or "",
+                "count": r["count"],
+                "value": float(r["value"] or 0),
+            }
+            for r in conn.execute(
+                f"""
+                SELECT
+                    category_code,
+                    category_name,
+                    COUNT(*) AS count,
+                    COALESCE(SUM(COALESCE(estimated_value, 0)), 0) AS value
+                FROM tenders {where}
+                GROUP BY category_code
+                ORDER BY count DESC, MIN(rowid)
+                """,
+                codes,
+            )
+        ]
+        by_status = [
+            {"status": r["status"], "count": r["count"]}
+            for r in conn.execute(
+                f"""
+                SELECT COALESCE(status, 'Unknown') AS status, COUNT(*) AS count
+                FROM tenders {where}
+                GROUP BY COALESCE(status, 'Unknown')
+                ORDER BY MIN(rowid)
+                """,
+                codes,
+            )
+        ]
+        top_buyers = [
+            {
+                "buyer": r["buyer"],
+                "count": r["count"],
+                "value": float(r["value"] or 0),
+            }
+            for r in conn.execute(
+                f"""
+                SELECT
+                    COALESCE(buyer, 'Unknown') AS buyer,
+                    COUNT(*) AS count,
+                    COALESCE(SUM(COALESCE(estimated_value, 0)), 0) AS value
+                FROM tenders {where}
+                GROUP BY COALESCE(buyer, 'Unknown')
+                ORDER BY count DESC, MIN(rowid)
+                LIMIT 10
+                """,
+                codes,
+            )
+        ]
+        closing = conn.execute(
+            f"""
+            SELECT * FROM tenders {where}
+              AND bid_deadline IS NOT NULL
+              AND substr(bid_deadline, 1, 10) >= ?
+              AND substr(bid_deadline, 1, 10) <= ?
+              AND status IN ({open_ph})
+            ORDER BY bid_deadline
+            LIMIT 8
+            """,
+            [*codes, today, horizon_end, *OPEN_STATUSES],
+        ).fetchall()
 
         return {
-            "totalTenders": len(rows),
-            "openTenders": open_count,
-            "closingWithin7Days": len(closing),
+            "totalTenders": total,
+            "openTenders": int(totals["open_count"] or 0),
+            "closingWithin7Days": int(totals["closing_count"] or 0),
+            "closingSoonDays": horizon,
             "totalEstimatedValue": total_value,
-            "averageEstimatedValue": (total_value / len(rows)) if rows else 0,
+            "averageEstimatedValue": (total_value / total) if total else 0,
             "currency": "GEL",
-            "byMonth": sorted(month_map.values(), key=lambda x: x["month"]),
-            "byCategory": sorted(cat_map.values(), key=lambda x: -x["count"]),
-            "byStatus": [{"status": k, "count": v} for k, v in status_map.items()],
-            "topBuyers": sorted(buyer_map.values(), key=lambda x: -x["count"])[:10],
-            "closingSoon": [_row_to_summary(r) for r in closing[:8]],
+            "byMonth": by_month,
+            "byCategory": by_category,
+            "byStatus": by_status,
+            "topBuyers": top_buyers,
+            "closingSoon": [_row_to_summary(r) for r in closing],
             "newSince": _new_since_last_run(conn, where, codes),
         }
 

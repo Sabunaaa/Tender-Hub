@@ -25,6 +25,7 @@ from typing import Iterator
 
 from . import config
 from .cancel import clear_stop, should_stop
+from .settings import apply_to_config
 from .client import RateLimiter, TenderPortalClient
 from .parsers import (
     ListingRow,
@@ -37,6 +38,7 @@ from .parsers import (
     parse_status_history,
 )
 from .repository import ALL_TENDER_PARTS, Repository
+from .specs import extract_spec_text
 
 log = logging.getLogger(__name__)
 
@@ -214,6 +216,11 @@ class ScrapePipeline:
                 sections, attachments = parse_docs_tab(docs_html)
                 tender.document_sections = sections
                 tender.attachments = attachments
+                try:
+                    tender.spec_text = extract_spec_text(client, attachments)
+                except Exception as exc:
+                    log.warning("spec extract failed for %s: %s", row.app_id, exc)
+                    tender.spec_text = ""
                 # Prefer the procurement-object name from documentation as the title
                 for sec in sections:
                     title = (sec.get("title") or "").lower()
@@ -272,6 +279,87 @@ class ScrapePipeline:
             replace=fetch.parts & ALL_TENDER_PARTS,
         )
 
+    def _fill_missing_specs(
+        self,
+        pool: _ClientPool,
+        app_ids: list[int],
+        run_id: int,
+        counters,
+    ) -> None:
+        """Download ტექნიკური files for tenders that never had spec text extracted.
+
+        Unchanged listings skip the docs tab, so existing tenders would otherwise
+        keep a NULL spec_text forever. Failures are stored as empty string so the
+        next daily run does not retry the same files.
+        """
+        missing = self.repo.app_ids_missing_spec(app_ids)
+        if not missing:
+            return
+        jobs = [(aid, self.repo.list_doc_attachments(aid)) for aid in missing]
+        log.info("  extracting ტექნიკური specs for %s tenders", len(jobs))
+
+        stop_flag = threading.Event()
+
+        def task(app_id: int, attachments: list[dict[str, str]]) -> tuple[int, str]:
+            if stop_flag.is_set():
+                return app_id, ""
+            with pool.lease() as client:
+                client.start_session()
+                try:
+                    return app_id, extract_spec_text(client, attachments)
+                except Exception as exc:
+                    log.warning("spec extract failed for %s: %s", app_id, exc)
+                    return app_id, ""
+
+        with ThreadPoolExecutor(max_workers=config.SCRAPE_CONCURRENCY) as executor:
+            pending = {executor.submit(task, aid, atts) for aid, atts in jobs}
+            try:
+                while pending:
+                    found, upserted, skipped, processed, errors = counters()
+                    if should_stop(run_id) or self.repo.get_run_status(run_id) == "cancelled":
+                        stop_flag.set()
+                        for future in pending:
+                            future.cancel()
+                        self._stop_if_requested(run_id, found, upserted, errors, skipped, processed)
+                    done, pending = wait(pending, timeout=1.0, return_when=FIRST_COMPLETED)
+                    for future in done:
+                        if future.cancelled():
+                            continue
+                        app_id, text = future.result()
+                        self.repo.save_spec_text(app_id, text)
+                        if text:
+                            log.info("  spec text for %s (%s chars)", app_id, len(text))
+            finally:
+                stop_flag.set()
+
+    def extract_missing_specs(self, limit: int | None = None) -> dict[str, int]:
+        """Backfill spec_text for tenders already in the database (no full scrape)."""
+        missing = self.repo.app_ids_missing_spec(limit=limit)
+        with_text = 0
+        empty = 0
+        errors = 0
+        limiter = RateLimiter(config.MAX_REQUESTS_PER_SECOND)
+        with TenderPortalClient(delay=self.delay, limiter=limiter) as client:
+            client.start_session()
+            for app_id in missing:
+                try:
+                    text = extract_spec_text(client, self.repo.list_doc_attachments(app_id))
+                    self.repo.save_spec_text(app_id, text)
+                    if text:
+                        with_text += 1
+                        log.info("spec text for %s (%s chars)", app_id, len(text))
+                    else:
+                        empty += 1
+                except Exception as exc:
+                    errors += 1
+                    log.warning("spec extract failed for %s: %s", app_id, exc)
+        return {
+            "attempted": len(missing),
+            "withText": with_text,
+            "empty": empty,
+            "errors": errors,
+        }
+
     def run(
         self,
         date_from: date,
@@ -283,6 +371,7 @@ class ScrapePipeline:
         force_refresh: bool = False,
     ) -> dict:
         date_to = date_to or date.today()
+        apply_to_config()
         tracked = self.repo.list_tracked(enabled_only=True)
         if category_ids:
             tracked = [c for c in tracked if c["id"] in category_ids]
@@ -419,6 +508,8 @@ class ScrapePipeline:
                                 categories_done=cat_idx,
                                 categories_total=len(tracked),
                             )
+
+                        self._fill_missing_specs(pool, [r.app_id for r in rows], run_id, counters)
 
                         self.repo.mark_scraped(cat["id"])
                         progress.update(

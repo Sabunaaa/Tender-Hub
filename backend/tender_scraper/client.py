@@ -140,17 +140,14 @@ class TenderPortalClient:
             time.sleep(self.delay - elapsed)
         self._last_request_at = time.monotonic()
 
-    def _request(self, method: str, url: str, **kwargs: object) -> str:
+    def _send(self, method: str, url: str, **kwargs: object) -> httpx.Response:
         last_error: Exception | None = None
         for attempt in range(1, self.max_retries + 1):
             self._throttle()
             try:
                 response = self._client.request(method, url, **kwargs)  # type: ignore[arg-type]
                 response.raise_for_status()
-                # The portal serves UTF-8 but does not always say so, which would
-                # otherwise mangle every Georgian string we read.
-                response.encoding = response.encoding or "utf-8"
-                return response.text
+                return response
             except httpx.HTTPStatusError as exc:
                 status = exc.response.status_code
                 # A 4xx means this URL is wrong or gone; retrying only burns the
@@ -173,6 +170,17 @@ class TenderPortalClient:
             )
             time.sleep(wait)
         raise TenderPortalError(f"Request to {url} failed after {self.max_retries} attempts") from last_error
+
+    def _request(self, method: str, url: str, **kwargs: object) -> str:
+        response = self._send(method, url, **kwargs)
+        # The portal serves UTF-8 but does not always say so, which would
+        # otherwise mangle every Georgian string we read.
+        response.encoding = response.encoding or "utf-8"
+        return response.text
+
+    def get_bytes(self, url: str) -> bytes:
+        """Download a file (tender attachments) using the same session and rate limit."""
+        return self._send("GET", url).content
 
     def start_session(self) -> None:
         """Load the landing page so the portal issues a PHP session cookie.
