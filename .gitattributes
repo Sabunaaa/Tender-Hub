@@ -1,0 +1,5 @@
+* text=auto
+
+# These run on the Linux server, so CRLF would break them.
+*.sh text eol=lf
+deploy/*.service text eol=lf
