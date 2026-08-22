@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from contextlib import asynccontextmanager
 from datetime import date, timedelta
 from typing import Annotated
@@ -11,7 +12,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from tender_scraper import config
+from tender_scraper import config, scheduler
 from tender_scraper.cancel import request_stop
 from tender_scraper.cpv_seed import seed_cpv_categories
 from tender_scraper.db import init_db
@@ -52,7 +53,14 @@ async def lifespan(_app: FastAPI):
     reaped = repo.fail_stale_running_runs()
     if reaped:
         log.warning("Marked stale scrape runs as failed: %s", reaped)
-    yield
+    # Windows drives the schedule through a registered task that runs even when
+    # the dashboard is closed; everywhere else the API has to schedule itself.
+    if sys.platform != "win32":
+        scheduler.start()
+    try:
+        yield
+    finally:
+        scheduler.stop()
 
 
 app = FastAPI(title="Tender Dashboard API", version="1.0.0", lifespan=lifespan)
@@ -117,6 +125,8 @@ class BackfillBody(BaseModel):
 
 class SettingsUpdateBody(BaseModel):
     scheduleEnabled: bool | None = None
+    scheduleTimes: list[str] | None = None
+    # Accepted so an older cached frontend keeps working; migrated to scheduleTimes.
     scheduleTime: str | None = None
     scheduleDays: list[str] | None = None
     dailyLookbackDays: int | None = Field(default=None, ge=1, le=30)

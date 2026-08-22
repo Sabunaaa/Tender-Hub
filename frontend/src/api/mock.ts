@@ -22,18 +22,24 @@ import type {
 const WEEKDAYS: Weekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
 const JS_DAY_TO_WEEKDAY: Weekday[] = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
 
-function mockNextScheduledAt(settings: Pick<AppSettings, 'scheduleEnabled' | 'scheduleTime' | 'scheduleDays'>): string | null {
+function mockNextScheduledAt(
+  settings: Pick<AppSettings, 'scheduleEnabled' | 'scheduleTimes' | 'scheduleDays'>,
+): string | null {
   if (!settings.scheduleEnabled || settings.scheduleDays.length === 0) return null
-  const [hours, minutes] = settings.scheduleTime.split(':').map(Number)
-  if (hours == null || minutes == null || Number.isNaN(hours) || Number.isNaN(minutes)) return null
+  if (settings.scheduleTimes.length === 0) return null
   const now = new Date()
   for (let offset = 0; offset < 8; offset += 1) {
-    const candidate = new Date(now)
-    candidate.setDate(now.getDate() + offset)
-    candidate.setHours(hours, minutes, 0, 0)
-    if (candidate <= now) continue
-    const day = JS_DAY_TO_WEEKDAY[candidate.getDay()]
-    if (day && settings.scheduleDays.includes(day)) return formatISO(candidate)
+    const base = new Date(now)
+    base.setDate(now.getDate() + offset)
+    const day = JS_DAY_TO_WEEKDAY[base.getDay()]
+    if (!day || !settings.scheduleDays.includes(day)) continue
+    for (const time of [...settings.scheduleTimes].sort()) {
+      const [hours, minutes] = time.split(':').map(Number)
+      if (hours == null || minutes == null || Number.isNaN(hours) || Number.isNaN(minutes)) continue
+      const candidate = new Date(base)
+      candidate.setHours(hours, minutes, 0, 0)
+      if (candidate > now) return formatISO(candidate)
+    }
   }
   return null
 }
@@ -47,7 +53,7 @@ function withDerivedSettings(base: Omit<AppSettings, 'nextScheduledAt'>): AppSet
 
 let mockSettings: AppSettings = withDerivedSettings({
   scheduleEnabled: true,
-  scheduleTime: '06:00',
+  scheduleTimes: ['06:00', '18:00'],
   scheduleDays: [...WEEKDAYS],
   dailyLookbackDays: 3,
   requestDelaySeconds: 1,

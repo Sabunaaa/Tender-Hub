@@ -3,7 +3,7 @@
 
 param(
     [string]$TaskName = "TenderDashboardDailyScrape",
-    [string]$Time = "06:00",
+    [string]$Times = "06:00",
     [string]$Days = "Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday",
     [switch]$Unregister
 )
@@ -51,13 +51,22 @@ $allDays = @(
 )
 $isDaily = ($dayEnums.Count -eq 7) -and -not (@($allDays | Where-Object { $dayEnums -notcontains $_ }))
 
+$timeList = @($Times.Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+if ($timeList.Count -eq 0) {
+    throw "At least one time of day is required."
+}
+
+# Task Scheduler has no multi-time daily trigger, so each time gets its own.
 if ($isDaily) {
-    $Trigger = New-ScheduledTaskTrigger -Daily -At $Time
+    $Trigger = foreach ($t in $timeList) { New-ScheduledTaskTrigger -Daily -At $t }
     $cadence = "daily"
 } else {
-    $Trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek $dayEnums -At $Time
+    $Trigger = foreach ($t in $timeList) {
+        New-ScheduledTaskTrigger -Weekly -DaysOfWeek $dayEnums -At $t
+    }
     $cadence = ($dayEnums | ForEach-Object { $_.ToString().Substring(0, 3) }) -join ", "
 }
+$timeLabel = $timeList -join ", "
 
 $Arg = "-m tender_scraper.cli daily"
 $Action = New-ScheduledTaskAction -Execute $Python -Argument $Arg -WorkingDirectory $Backend
@@ -78,9 +87,9 @@ Register-ScheduledTask `
     -Trigger $Trigger `
     -Settings $Settings `
     -Principal $Principal `
-    -Description "Scrape of Georgian SPA tenders for tracked CPV categories ($cadence at $Time)" `
+    -Description "Scrape of Georgian SPA tenders for tracked CPV categories ($cadence at $timeLabel)" `
     -Force | Out-Null
 
-Write-Host "Registered scheduled task '$TaskName' ($cadence at $Time)"
+Write-Host "Registered scheduled task '$TaskName' ($cadence at $timeLabel)"
 Write-Host "Python: $Python"
 Write-Host "WorkingDirectory: $Backend"

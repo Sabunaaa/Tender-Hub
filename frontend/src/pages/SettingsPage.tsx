@@ -1,6 +1,7 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { AlarmClock, Check, Play, RotateCcw, Save } from 'lucide-react'
+import { AlarmClock, Check, Play, Plus, RotateCcw, Save, X } from 'lucide-react'
 import { api, isMockMode } from '../api'
 import type { Weekday } from '../api'
 import { ErrorState, LoadingState } from '../components/ui'
@@ -20,9 +21,11 @@ const WEEKDAYS: { id: Weekday; label: string; short: string }[] = [
 
 const TIME_PRESETS = ['06:00', '08:00', '12:00', '18:00', '21:00'] as const
 
+const MAX_TIMES = 6
+
 const GENERAL_KEYS = [
   'scheduleEnabled',
-  'scheduleTime',
+  'scheduleTimes',
   'scheduleDays',
   'closingSoonDays',
   'defaultPageSize',
@@ -59,12 +62,28 @@ export function SettingsPage() {
     },
   })
 
+  const [newTime, setNewTime] = useState('18:00')
+
   const toggleDay = (day: Weekday) => {
     if (!draft) return
     const next = draft.scheduleDays.includes(day)
       ? draft.scheduleDays.filter((item) => item !== day)
       : [...draft.scheduleDays, day]
     patch({ scheduleDays: WEEKDAYS.map((item) => item.id).filter((id) => next.includes(id)) })
+  }
+
+  // Kept sorted and unique so the draft matches what the backend stores.
+  const setTimes = (next: string[]) => {
+    patch({ scheduleTimes: [...new Set(next.filter(Boolean))].sort().slice(0, MAX_TIMES) })
+  }
+
+  const toggleTime = (time: string) => {
+    if (!draft) return
+    setTimes(
+      draft.scheduleTimes.includes(time)
+        ? draft.scheduleTimes.filter((item) => item !== time)
+        : [...draft.scheduleTimes, time],
+    )
   }
 
   if (settingsQuery.isLoading && !draft) return <LoadingState label="Loading settings…" />
@@ -75,9 +94,10 @@ export function SettingsPage() {
 
   const dirty = isSettingsSliceDirty(draft, serverDraft, GENERAL_KEYS)
   const save = () => saveMutation.mutate(pickSettings(draft, GENERAL_KEYS))
-  const [hour = '06', minute = '00'] = draft.scheduleTime.split(':')
+  const times = draft.scheduleTimes
+  const [hour = '06', minute = '00'] = (times[0] ?? '06:00').split(':')
   const clock = { hour, minute }
-  const canEnable = draft.scheduleDays.length > 0
+  const canEnable = draft.scheduleDays.length > 0 && times.length > 0
   const task = saved?.taskStatus
   const saveDisabled = saveMutation.isPending || (draft.scheduleEnabled && !canEnable)
 
@@ -127,8 +147,9 @@ export function SettingsPage() {
           </span>
           <h3>Run it whenever you want.</h3>
           <p>
-            Choose the days and the exact Tbilisi time (GMT+4). Tender Hub writes a Windows scheduled task
-            {isMockMode ? ' (simulated in demo mode)' : ''} so the daily scrape can start even if the dashboard is closed.
+            Choose the days and one or more Tbilisi times (GMT+4) — add a second time to scrape twice a day. On
+            Windows, Tender Hub writes a scheduled task{isMockMode ? ' (simulated in demo mode)' : ''} so a run can
+            start even when the dashboard is closed; on a server the app runs the schedule itself.
           </p>
 
           <label className="settings-toggle">
@@ -142,8 +163,8 @@ export function SettingsPage() {
               <strong>{draft.scheduleEnabled ? 'Schedule on' : 'Schedule off'}</strong>
               <small>
                 {draft.scheduleEnabled
-                  ? `${describeDays(draft.scheduleDays)} at ${draft.scheduleTime}`
-                  : 'The Windows task stays unregistered until you turn this on and save.'}
+                  ? `${describeDays(draft.scheduleDays)} at ${times.join(', ') || 'no time set'}`
+                  : 'The scheduled task stays unregistered until you turn this on and save.'}
               </small>
             </span>
           </label>
@@ -191,22 +212,59 @@ export function SettingsPage() {
             <span>{clock.minute}</span>
           </div>
           <p className="settings-tz-hint">Times are Georgia Standard Time — Tbilisi, GMT+4. No daylight saving.</p>
+
+          <div className="settings-time-list" role="group" aria-label="Times of day">
+            {times.length === 0 ? (
+              <p className="settings-warning">Add at least one time of day.</p>
+            ) : (
+              times.map((time) => (
+                <span key={time} className="settings-time-chip">
+                  {time}
+                  <button
+                    type="button"
+                    aria-label={`Remove ${time}`}
+                    onClick={() => toggleTime(time)}
+                    disabled={times.length === 1}
+                    title={times.length === 1 ? 'Keep at least one time' : `Remove ${time}`}
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
+              ))
+            )}
+          </div>
+
           <label className="settings-time-label">
-            Tbilisi time · GMT+4
-            <input
-              type="time"
-              className="field-input settings-time-input"
-              value={draft.scheduleTime}
-              onChange={(e) => patch({ scheduleTime: e.target.value || '06:00' })}
-            />
+            Add a time · Tbilisi GMT+4
+            <span className="settings-time-add">
+              <input
+                type="time"
+                className="field-input settings-time-input"
+                value={newTime}
+                onChange={(e) => setNewTime(e.target.value || '18:00')}
+              />
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setTimes([...times, newTime])}
+                disabled={times.length >= MAX_TIMES || times.includes(newTime)}
+                title={times.includes(newTime) ? 'Already scheduled' : 'Add this time'}
+              >
+                <Plus size={14} />
+                Add
+              </button>
+            </span>
           </label>
+
           <div className="settings-time-presets">
             {TIME_PRESETS.map((time) => (
               <button
                 key={time}
                 type="button"
-                className={`chip-button${draft.scheduleTime === time ? ' active' : ''}`}
-                onClick={() => patch({ scheduleTime: time })}
+                className={`chip-button${times.includes(time) ? ' active' : ''}`}
+                aria-pressed={times.includes(time)}
+                onClick={() => toggleTime(time)}
+                disabled={!times.includes(time) && times.length >= MAX_TIMES}
               >
                 {time}
               </button>
@@ -224,7 +282,7 @@ export function SettingsPage() {
               </dd>
             </div>
             <div>
-              <dt>Windows task</dt>
+              <dt>{task?.taskName === 'In-app scheduler' ? 'Scheduler' : 'Windows task'}</dt>
               <dd>
                 {task?.registered
                   ? `${task.state ?? 'Registered'}${task.lastRunAt ? ` · last ${formatDateTime(task.lastRunAt)}` : ''}`

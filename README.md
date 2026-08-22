@@ -75,15 +75,17 @@ For local UI development with hot reload, run `scripts\dev.bat` instead (API on 
 
 ### 4. Schedule scrapes
 
-Open **Settings** in the UI (`/settings`) and pick any days and time. Saving creates or updates the Windows task `TenderDashboardDailyScrape`. You can also turn the schedule off there, or run a scrape immediately.
+Open **Settings** in the UI (`/settings`) and pick any days and one or more times of day (up to 6 — add a second time to scrape twice daily). Saving creates or updates the Windows task `TenderDashboardDailyScrape`, which gets one trigger per configured time. You can also turn the schedule off there, or run a scrape immediately.
 
 From a shell:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\register_task.ps1 -Time 18:30 -Days "Monday,Wednesday,Friday"
+powershell -ExecutionPolicy Bypass -File .\scripts\register_task.ps1 -Times "06:00,18:30" -Days "Monday,Wednesday,Friday"
 ```
 
 The task uses “start when available” so a missed run catches up after reboot.
+
+On non-Windows hosts there is no Task Scheduler, so the API process runs the schedule itself: a background thread checks the clock every 30 seconds and starts the daily scrape when a configured time comes due. The same settings drive both, and a run is skipped if another one is already active.
 
 ## Frontend data mode
 

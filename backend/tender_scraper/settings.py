@@ -35,6 +35,17 @@ _lock = threading.Lock()
 _cache: AppSettings | None = None
 _MAX_PEOPLE = 50
 _MAX_NAME = 80
+_MAX_TIMES = 6
+
+
+def _clean_time(value: str) -> str:
+    parts = str(value).split(":")
+    if len(parts) != 2:
+        raise ValueError("Schedule times must be HH:MM")
+    hour, minute = int(parts[0]), int(parts[1])
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        raise ValueError("Schedule times must be a valid 24-hour time")
+    return f"{hour:02d}:{minute:02d}"
 
 
 def _clean_names(value: list[str]) -> list[str]:
@@ -69,7 +80,7 @@ class AppSettings(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     schedule_enabled: bool = Field(default=False, alias="scheduleEnabled")
-    schedule_time: str = Field(default="06:00", alias="scheduleTime")
+    schedule_times: list[str] = Field(default_factory=lambda: ["06:00"], alias="scheduleTimes")
     schedule_days: list[str] = Field(default_factory=lambda: list(WEEKDAYS), alias="scheduleDays")
     daily_lookback_days: int = Field(default=3, alias="dailyLookbackDays", ge=1, le=30)
     request_delay_seconds: float = Field(default=1.0, alias="requestDelaySeconds", ge=0.2, le=10)
@@ -81,16 +92,13 @@ class AppSettings(BaseModel):
     account_managers: list[str] = Field(default_factory=list, alias="accountManagers")
     solution_managers: list[str] = Field(default_factory=list, alias="solutionManagers")
 
-    @field_validator("schedule_time")
+    @field_validator("schedule_times")
     @classmethod
-    def _valid_time(cls, value: str) -> str:
-        parts = value.split(":")
-        if len(parts) != 2:
-            raise ValueError("scheduleTime must be HH:MM")
-        hour, minute = int(parts[0]), int(parts[1])
-        if not (0 <= hour <= 23 and 0 <= minute <= 59):
-            raise ValueError("scheduleTime must be a valid 24-hour time")
-        return f"{hour:02d}:{minute:02d}"
+    def _valid_times(cls, value: list[str]) -> list[str]:
+        seen = {_clean_time(item) for item in value}
+        if len(seen) > _MAX_TIMES:
+            raise ValueError(f"At most {_MAX_TIMES} scrape times per day")
+        return sorted(seen)
 
     @field_validator("schedule_days")
     @classmethod
@@ -123,6 +131,15 @@ def default_settings() -> AppSettings:
     return AppSettings()
 
 
+def _migrate(raw: dict[str, Any]) -> dict[str, Any]:
+    """Accept the pre-multi-time `scheduleTime` key from disk and older clients."""
+    data = dict(raw)
+    legacy = data.pop("scheduleTime", None) or data.pop("schedule_time", None)
+    if legacy and not data.get("scheduleTimes") and not data.get("schedule_times"):
+        data["scheduleTimes"] = [legacy]
+    return data
+
+
 def load_settings() -> AppSettings:
     global _cache
     with _lock:
@@ -132,7 +149,7 @@ def load_settings() -> AppSettings:
         if path.exists():
             try:
                 raw = json.loads(path.read_text(encoding="utf-8"))
-                _cache = AppSettings.model_validate(raw)
+                _cache = AppSettings.model_validate(_migrate(raw))
             except Exception:
                 log.exception("Failed to read %s; using defaults", path)
                 _cache = default_settings()
@@ -174,20 +191,20 @@ def _as_tbilisi(value: datetime | None = None) -> datetime:
 
 
 def next_scheduled_at(settings: AppSettings | None = None, now: datetime | None = None) -> datetime | None:
+    """Soonest upcoming run across every configured time of day."""
     current = settings or load_settings()
-    if not current.schedule_enabled or not current.schedule_days:
+    if not current.schedule_enabled or not current.schedule_days or not current.schedule_times:
         return None
-    hour, minute = (int(part) for part in current.schedule_time.split(":"))
     cursor = _as_tbilisi(now)
     for offset in range(0, 8):
-        candidate = (cursor + timedelta(days=offset)).replace(
-            hour=hour, minute=minute, second=0, microsecond=0
-        )
-        if candidate <= cursor:
+        day = cursor + timedelta(days=offset)
+        if WEEKDAYS[day.weekday()] not in current.schedule_days:
             continue
-        weekday = WEEKDAYS[candidate.weekday()]
-        if weekday in current.schedule_days:
-            return candidate
+        for value in current.schedule_times:
+            hour, minute = (int(part) for part in value.split(":"))
+            candidate = day.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if candidate > cursor:
+                return candidate
     return None
 
 
@@ -201,6 +218,10 @@ def windows_trigger_time(tbilisi_hhmm: str, now: datetime | None = None) -> str:
     hour, minute = (int(part) for part in tbilisi_hhmm.split(":"))
     tbilisi_dt = _as_tbilisi(now).replace(hour=hour, minute=minute, second=0, microsecond=0)
     return tbilisi_dt.astimezone().strftime("%H:%M")
+
+
+def windows_trigger_times(tbilisi_times: list[str], now: datetime | None = None) -> list[str]:
+    return [windows_trigger_time(value, now) for value in tbilisi_times]
 
 
 def _script_path() -> Any:
@@ -217,13 +238,25 @@ def _run_powershell(args: list[str], timeout: int = 45) -> subprocess.CompletedP
     )
 
 
+def _in_process_status(settings: AppSettings) -> TaskStatus:
+    """Status for hosts where tender_scraper.scheduler drives the schedule."""
+    live = bool(settings.schedule_enabled and settings.schedule_days and settings.schedule_times)
+    return TaskStatus(
+        registered=live,
+        taskName="In-app scheduler",
+        state="Ready" if live else "Disabled",
+        message=(
+            "This host has no Task Scheduler, so the app runs the schedule itself while it stays online."
+            if live
+            else "Schedule is off."
+        ),
+    )
+
+
 def sync_schedule(settings: AppSettings) -> TaskStatus:
     """Create, update, or remove the Windows scheduled task to match settings."""
     if sys.platform != "win32":
-        return TaskStatus(
-            registered=False,
-            message="Scheduled tasks are only supported on Windows.",
-        )
+        return _in_process_status(settings)
 
     script = _script_path()
     if not script.exists():
@@ -240,11 +273,12 @@ def sync_schedule(settings: AppSettings) -> TaskStatus:
 
         if not settings.schedule_days:
             return TaskStatus(registered=False, message="Pick at least one weekday to enable the schedule.")
+        if not settings.schedule_times:
+            return TaskStatus(registered=False, message="Pick at least one time of day to enable the schedule.")
 
         days = ",".join(_PS_DAYS[day] for day in settings.schedule_days)
-        result = _run_powershell(
-            ["-File", str(script), "-Time", windows_trigger_time(settings.schedule_time), "-Days", days]
-        )
+        times = ",".join(windows_trigger_times(settings.schedule_times))
+        result = _run_powershell(["-File", str(script), "-Times", times, "-Days", days])
         if result.returncode != 0:
             err = (result.stderr or result.stdout or "Failed to register task").strip()
             log.warning("Register task failed: %s", err)
@@ -264,10 +298,7 @@ def sync_schedule(settings: AppSettings) -> TaskStatus:
 
 def inspect_task() -> TaskStatus:
     if sys.platform != "win32":
-        return TaskStatus(
-            registered=False,
-            message="Scheduled tasks are only supported on Windows.",
-        )
+        return _in_process_status(load_settings())
     script = (
         "$ErrorActionPreference='Stop';"
         f"$name='{TASK_NAME}';"
@@ -320,10 +351,14 @@ def to_payload(settings: AppSettings | None = None, task_status: TaskStatus | No
 
 def update_settings(patch: dict[str, Any]) -> SettingsPayload:
     current = load_settings()
-    incoming = {**current.model_dump(by_alias=True), **patch}
+    # Migrate the patch, not the merge: the stored settings always carry
+    # scheduleTimes, which would mask a legacy scheduleTime sent by a client.
+    incoming = {**current.model_dump(by_alias=True), **_migrate(patch)}
     updated = AppSettings.model_validate(incoming)
     if updated.schedule_enabled and not updated.schedule_days:
         raise ValueError("Pick at least one weekday to enable the schedule.")
+    if updated.schedule_enabled and not updated.schedule_times:
+        raise ValueError("Pick at least one time of day to enable the schedule.")
     saved = save_settings(updated)
     status = sync_schedule(saved)
     return to_payload(saved, status)

@@ -204,7 +204,8 @@ export interface TaskStatus {
 
 export interface AppSettings {
   scheduleEnabled: boolean
-  scheduleTime: string
+  /** One or more Tbilisi HH:MM times; the scrape runs at each of them. */
+  scheduleTimes: string[]
   scheduleDays: Weekday[]
   dailyLookbackDays: number
   requestDelaySeconds: number

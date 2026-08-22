@@ -8,7 +8,8 @@ export type SettingsDraft = Omit<AppSettings, 'nextScheduledAt' | 'taskStatus'>
 export function toSettingsDraft(settings: AppSettings): SettingsDraft {
   return {
     scheduleEnabled: settings.scheduleEnabled,
-    scheduleTime: settings.scheduleTime,
+    // Tolerate a backend that predates multi-time scheduling rather than crashing the page.
+    scheduleTimes: [...(settings.scheduleTimes ?? [])],
     scheduleDays: [...settings.scheduleDays],
     dailyLookbackDays: settings.dailyLookbackDays,
     requestDelaySeconds: settings.requestDelaySeconds,

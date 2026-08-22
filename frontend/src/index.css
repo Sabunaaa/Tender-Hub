@@ -1603,6 +1603,51 @@ a.local-badge:hover { border-color: #3a3f48; }
 
 .settings-time-input { margin-top: 6px; }
 
+.settings-time-add {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+.settings-time-add .settings-time-input { margin-top: 0; flex: 1; }
+.settings-time-add .secondary-button { white-space: nowrap; }
+
+.settings-time-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.settings-time-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-time-chip button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  cursor: pointer;
+  background: #f1f2f4;
+  color: #68707c;
+}
+.settings-time-chip button:hover:not(:disabled) { background: var(--danger-soft); color: var(--danger); }
+.settings-time-chip button:disabled { opacity: .4; cursor: not-allowed; }
+
 .settings-time-presets {
   display: flex;
   flex-wrap: wrap;
