@@ -425,6 +425,29 @@ svg:focus-visible {
   letter-spacing: -.02em;
 }
 
+.topbar-meta {
+  margin-left: auto;
+  text-align: right;
+  flex: 0 0 auto;
+}
+
+.topbar-meta strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+}
+
+.topbar-meta p {
+  margin: 2px 0 0;
+  color: #8b919c;
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: .01em;
+  white-space: nowrap;
+}
+
 .main-content {
   margin-left: var(--sidebar-width);
   padding: 108px 34px 44px;

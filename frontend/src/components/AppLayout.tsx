@@ -251,6 +251,10 @@ export function AppLayout() {
           <p>{current.eyebrow}</p>
           <h1>{current.title}</h1>
         </div>
+        <div className="topbar-meta">
+          <strong>v1.0</strong>
+          <p>support: s84404579 - WeLink</p>
+        </div>
       </header>
 
       <main className="main-content">
