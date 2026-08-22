@@ -141,13 +141,19 @@ export interface DashboardStats {
   openTenders: number
   closingWithin7Days: number
   closingSoonDays?: number
-  totalEstimatedValue: number
-  averageEstimatedValue: number
+  /** Announced in the last 7 days (today included). */
+  newThisWeek: number
+  /** Open tenders that are not on the engagement list. */
+  openUntracked: number
+  /** Rows on the engagement list. */
+  onEngagement: number
+  /** Engagement rows marked as engaged. */
+  engagedCount: number
   currency: string
   byMonth: { month: string; categoryCode: string; categoryName: string; count: number; value: number }[]
-  byCategory: { categoryCode: string; categoryName: string; count: number; value: number }[]
+  byCategory: { categoryCode: string; categoryName: string; count: number; openCount: number; value: number }[]
   byStatus: { status: string; count: number }[]
-  topBuyers: { buyer: string; count: number; value: number }[]
+  topBuyers: { buyer: string; count: number; openCount: number; value: number }[]
   closingSoon: TenderSummary[]
   newSince?: NewSinceLastRun
 }

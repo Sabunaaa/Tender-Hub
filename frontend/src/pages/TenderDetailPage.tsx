@@ -1,20 +1,34 @@
 import { useEffect, useRef } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { Link, useLocation, useParams } from 'react-router-dom'
-import { ExternalLink } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { ExternalLink, Handshake } from 'lucide-react'
 import { api } from '../api'
 import { SpecPanel } from '../components/SpecPanel'
-import { Card, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
+import { Card, ErrorState, LoadingState, StatusBadge } from '../components/ui'
 import { errorMessage } from '../lib/errors'
 import { formatDate, formatDateTime, formatGel } from '../lib/format'
 
 export function TenderDetailPage() {
   const { id } = useParams()
   const appId = Number(id)
+  const navigate = useNavigate()
+  const qc = useQueryClient()
   const { data, isLoading, error } = useQuery({
     queryKey: ['tender', appId],
     queryFn: () => api.getTender(appId),
     enabled: Number.isFinite(appId),
+  })
+  const addEngagement = useMutation({
+    mutationFn: (announcementNumber: string) => api.addEngagement(announcementNumber),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['engagements'] })
+      navigate('/engagement')
+    },
+    onError: (err) => {
+      if (errorMessage(err, '').toLowerCase().includes('already')) {
+        navigate('/engagement')
+      }
+    },
   })
 
   const { hash } = useLocation()
@@ -33,10 +47,17 @@ export function TenderDetailPage() {
 
   return (
     <div>
-      <PageHeader
-        title={data.announcementNumber}
-        subtitle={data.buyer}
-        actions={
+      <div className="section-toolbar tender-detail-header">
+        <div>
+          <h2>{data.announcementNumber}</h2>
+          <p>{data.buyer}</p>
+          <div className="toolbar-actions tender-detail-pills">
+            <StatusBadge status={data.status} />
+            <span className="status-pill neutral">{data.categoryName}</span>
+            <span className="status-pill neutral">{data.procurementType}</span>
+          </div>
+        </div>
+        <div className="tender-detail-actions">
           <div className="toolbar-actions">
             <Link to="/tenders" className="secondary-button">
               Back
@@ -45,18 +66,22 @@ export function TenderDetailPage() {
               Open on portal <ExternalLink size={16} />
             </a>
           </div>
-        }
-      />
-
-      <div className="toolbar-actions" style={{ marginBottom: 16 }}>
-        <StatusBadge status={data.status} />
-        <span className="status-pill neutral">{data.categoryName}</span>
-        <span className="status-pill neutral">{data.procurementType}</span>
-      </div>
-
-      <div className="alert-box warn">
-        Structured fields (status, category, type, buyer) are in English from the portal.
-        Free-text titles and specifications below are in Georgian as published.
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={addEngagement.isPending}
+            onClick={() => addEngagement.mutate(data.announcementNumber)}
+          >
+            <Handshake size={16} />
+            {addEngagement.isPending ? 'Moving…' : 'Move to engagement'}
+          </button>
+          {addEngagement.isError &&
+            !errorMessage(addEngagement.error, '').toLowerCase().includes('already') && (
+              <p className="settings-warning" style={{ margin: 0 }}>
+                {errorMessage(addEngagement.error, 'Could not add to engagement')}
+              </p>
+            )}
+        </div>
       </div>
 
       <div className="detail-grid-2 main">

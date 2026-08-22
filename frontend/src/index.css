@@ -696,6 +696,16 @@ svg:focus-visible {
 .stat-card span { color: var(--muted); font-size: 11px; }
 .stat-card strong { font-size: 22px; margin: 4px 0 2px; letter-spacing: -.03em; }
 .stat-card small { color: #9a9fa7; font-size: 10px; }
+a.stat-card {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+a.stat-card:hover {
+  border-color: #d0d4dc;
+  box-shadow: 0 6px 18px rgba(16, 18, 22, .04);
+}
 
 .dashboard-grid {
   display: grid;
@@ -750,6 +760,11 @@ svg:focus-visible {
   gap: 16px;
 }
 
+.tenders-presets {
+  justify-content: flex-end;
+  margin: -22px 0 4px;
+}
+
 .section-toolbar h2 {
   font-size: 24px;
   margin: 0;
@@ -767,6 +782,26 @@ svg:focus-visible {
   flex-wrap: wrap;
   gap: 9px;
   align-items: center;
+}
+
+.tender-detail-header {
+  align-items: flex-start;
+}
+.tender-detail-pills {
+  margin-top: 10px;
+}
+.tender-detail-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.tender-detail-actions .toolbar-actions {
+  flex-wrap: nowrap;
+}
+.tender-detail-actions > .secondary-button {
+  width: 100%;
+  padding: 10px 15px;
 }
 
 .status-pill {
@@ -849,7 +884,6 @@ svg:focus-visible {
 .filter-panel.sticky-filters {
   position: sticky;
   top: 86px;
-  margin-top: -12px;
 }
 
 .filter-panel.sticky-filters > .panel-heading {
@@ -1627,6 +1661,7 @@ a.local-badge:hover { border-color: #3a3f48; }
   border: 1px solid var(--line);
   border-radius: 20px;
   background: #fff;
+  color: var(--ink);
   font-size: 13px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;

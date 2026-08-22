@@ -305,8 +305,10 @@ def get_stats(db_path=None) -> dict[str, Any]:
                 "openTenders": 0,
                 "closingWithin7Days": 0,
                 "closingSoonDays": horizon,
-                "totalEstimatedValue": 0,
-                "averageEstimatedValue": 0,
+                "newThisWeek": 0,
+                "openUntracked": 0,
+                "onEngagement": 0,
+                "engagedCount": 0,
                 "currency": "GEL",
                 "byMonth": [],
                 "byCategory": [],
@@ -318,6 +320,7 @@ def get_stats(db_path=None) -> dict[str, Any]:
         placeholders = ",".join("?" * len(codes))
         where = f"WHERE category_code IN ({placeholders})"
         today = date.today().isoformat()
+        week_start = (date.today() - timedelta(days=6)).isoformat()
         horizon_end = (date.today() + timedelta(days=horizon)).isoformat()
         open_ph = ",".join("?" * len(OPEN_STATUSES))
 
@@ -325,20 +328,52 @@ def get_stats(db_path=None) -> dict[str, Any]:
             f"""
             SELECT
                 COUNT(*) AS total,
-                COALESCE(SUM(COALESCE(estimated_value, 0)), 0) AS total_value,
                 SUM(CASE WHEN status IN ({open_ph}) THEN 1 ELSE 0 END) AS open_count,
                 SUM(CASE
                     WHEN bid_deadline IS NOT NULL
                      AND substr(bid_deadline, 1, 10) >= ?
                      AND substr(bid_deadline, 1, 10) <= ?
                      AND status IN ({open_ph})
-                    THEN 1 ELSE 0 END) AS closing_count
+                    THEN 1 ELSE 0 END) AS closing_count,
+                SUM(CASE
+                    WHEN announcement_date IS NOT NULL
+                     AND announcement_date != ''
+                     AND substr(announcement_date, 1, 10) >= ?
+                     AND substr(announcement_date, 1, 10) <= ?
+                    THEN 1 ELSE 0 END) AS new_week,
+                SUM(CASE
+                    WHEN status IN ({open_ph})
+                     AND NOT EXISTS (
+                        SELECT 1 FROM engagements e
+                        WHERE e.app_id = tenders.app_id
+                           OR (
+                             tenders.announcement_number IS NOT NULL
+                             AND e.announcement_number = tenders.announcement_number COLLATE NOCASE
+                           )
+                     )
+                    THEN 1 ELSE 0 END) AS open_untracked
             FROM tenders {where}
             """,
-            [*OPEN_STATUSES, today, horizon_end, *OPEN_STATUSES, *codes],
+            [
+                *OPEN_STATUSES,
+                today,
+                horizon_end,
+                *OPEN_STATUSES,
+                week_start,
+                today,
+                *OPEN_STATUSES,
+                *codes,
+            ],
         ).fetchone()
         total = int(totals["total"] or 0)
-        total_value = float(totals["total_value"] or 0)
+        engagement = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS total,
+                COALESCE(SUM(CASE WHEN engaged = 1 THEN 1 ELSE 0 END), 0) AS engaged
+            FROM engagements
+            """
+        ).fetchone()
 
         by_month = [
             {
@@ -370,6 +405,7 @@ def get_stats(db_path=None) -> dict[str, Any]:
                 "categoryCode": r["category_code"] or "",
                 "categoryName": r["category_name"] or "",
                 "count": r["count"],
+                "openCount": int(r["open_count"] or 0),
                 "value": float(r["value"] or 0),
             }
             for r in conn.execute(
@@ -378,12 +414,13 @@ def get_stats(db_path=None) -> dict[str, Any]:
                     category_code,
                     category_name,
                     COUNT(*) AS count,
+                    SUM(CASE WHEN status IN ({open_ph}) THEN 1 ELSE 0 END) AS open_count,
                     COALESCE(SUM(COALESCE(estimated_value, 0)), 0) AS value
                 FROM tenders {where}
                 GROUP BY category_code
-                ORDER BY count DESC, MIN(rowid)
+                ORDER BY open_count DESC, count DESC, MIN(rowid)
                 """,
-                codes,
+                [*OPEN_STATUSES, *codes],
             )
         ]
         by_status = [
@@ -402,6 +439,7 @@ def get_stats(db_path=None) -> dict[str, Any]:
             {
                 "buyer": r["buyer"],
                 "count": r["count"],
+                "openCount": int(r["open_count"] or 0),
                 "value": float(r["value"] or 0),
             }
             for r in conn.execute(
@@ -409,13 +447,14 @@ def get_stats(db_path=None) -> dict[str, Any]:
                 SELECT
                     COALESCE(buyer, 'Unknown') AS buyer,
                     COUNT(*) AS count,
+                    SUM(CASE WHEN status IN ({open_ph}) THEN 1 ELSE 0 END) AS open_count,
                     COALESCE(SUM(COALESCE(estimated_value, 0)), 0) AS value
                 FROM tenders {where}
                 GROUP BY COALESCE(buyer, 'Unknown')
-                ORDER BY count DESC, MIN(rowid)
+                ORDER BY open_count DESC, count DESC, MIN(rowid)
                 LIMIT 10
                 """,
-                codes,
+                [*OPEN_STATUSES, *codes],
             )
         ]
         closing = conn.execute(
@@ -436,8 +475,10 @@ def get_stats(db_path=None) -> dict[str, Any]:
             "openTenders": int(totals["open_count"] or 0),
             "closingWithin7Days": int(totals["closing_count"] or 0),
             "closingSoonDays": horizon,
-            "totalEstimatedValue": total_value,
-            "averageEstimatedValue": (total_value / total) if total else 0,
+            "newThisWeek": int(totals["new_week"] or 0),
+            "openUntracked": int(totals["open_untracked"] or 0),
+            "onEngagement": int(engagement["total"] or 0),
+            "engagedCount": int(engagement["engaged"] or 0),
             "currency": "GEL",
             "byMonth": by_month,
             "byCategory": by_category,

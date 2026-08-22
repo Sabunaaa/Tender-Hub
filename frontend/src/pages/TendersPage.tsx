@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { formatISO, subDays } from 'date-fns'
 import { api } from '../api'
-import { Card, ErrorState, FilterSection, LoadingState, PageHeader, StatusBadge } from '../components/ui'
+import { Card, ErrorState, FilterSection, LoadingState, StatusBadge } from '../components/ui'
 import { errorMessage } from '../lib/errors'
 import { formatDate, formatGel, shortCategory, shortProcurementType } from '../lib/format'
 import { DEVICE_KEYWORDS, activeDatePreset, filtersFromParams, parseList } from '../lib/tenderFilters'
@@ -239,25 +239,21 @@ export function TendersPage() {
 
   return (
     <div>
-      <PageHeader
-        title="Tenders"
-        subtitle="Filter and explore tracked procurement announcements"
-        actions={
-          <div className="toolbar-actions">
-            {(['30d', '90d', 'year', '7d', 'clear'] as const).map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => applyPreset(p)}
-                className={`chip-button${activePreset === p ? ' active' : ''}`}
-                aria-pressed={activePreset === p}
-              >
-                {p === '7d' ? 'Closing 7d' : p === 'clear' ? 'Clear' : `Last ${p}`}
-              </button>
-            ))}
-          </div>
-        }
-      />
+      <div className="section-toolbar tenders-presets">
+        <div className="toolbar-actions">
+          {(['30d', '90d', 'year', '7d', 'clear'] as const).map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => applyPreset(p)}
+              className={`chip-button${activePreset === p ? ' active' : ''}`}
+              aria-pressed={activePreset === p}
+            >
+              {p === '7d' ? 'Closing 7d' : p === 'clear' ? 'Clear' : `Last ${p}`}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="explorer-layout">
         <Card title="Filters" className="filter-panel sticky-filters">

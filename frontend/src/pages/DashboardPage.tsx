@@ -1,15 +1,14 @@
 import type { CSSProperties } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { formatDistanceToNow } from 'date-fns'
+import { formatDistanceToNow, formatISO, subDays } from 'date-fns'
 import {
-  Banknote,
+  Bookmark,
   CalendarClock,
   FileSearch,
-  FolderOpen,
+  Inbox,
   ShieldCheck,
   Sparkles,
-  TrendingUp,
 } from 'lucide-react'
 import {
   Bar,
@@ -30,6 +29,12 @@ import { errorMessage } from '../lib/errors'
 import { categoryColor, formatDate, formatGel, shortCategory } from '../lib/format'
 
 const STATUS_COLORS = ['#c7000b', '#2768c9', '#7a52c7', '#b76e00', '#0f8a5f', '#667085', '#ef3340', '#2b69bf', '#c92a2a']
+const OPEN_STATUS_QUERY = [
+  'Tender announced',
+  'Bidding commenced',
+  'Bidding ended',
+  'Selection/Evaluation',
+].join(',')
 
 export function DashboardPage() {
   const { data, isLoading, error } = useQuery({
@@ -75,7 +80,7 @@ export function DashboardPage() {
           <h2>Track the IT tenders that matter.</h2>
           <p>
             Daily scrape of computers, networks, and telecom equipment from the State Procurement
-            Agency portal — filter, compare values, and never miss a closing deadline.
+            Agency portal — see what is new, what is closing, and what you have not tracked yet.
           </p>
           <div className="hero-actions">
             <Link className="primary-button" to="/tenders">
@@ -101,39 +106,48 @@ export function DashboardPage() {
 
       <section className="stat-grid">
         <KpiCard
-          label="Total tenders"
-          value={String(data.totalTenders)}
-          hint="In tracked categories"
-          tone="red"
-          icon={<FolderOpen size={19} />}
-        />
-        <KpiCard
           label="Currently open"
           value={String(data.openTenders)}
-          hint="Announced → evaluation"
+          hint={`${data.totalTenders} in catalog`}
           tone="blue"
+          to={`/tenders?status=${encodeURIComponent(OPEN_STATUS_QUERY)}`}
           icon={<FileSearch size={19} />}
         />
         <KpiCard
           label={`Closing in ${closingSoonDays} days`}
           value={String(data.closingWithin7Days)}
-          hint={`Next ${closingSoonDays} days`}
+          hint="Need a decision soon"
           tone="amber"
+          to="/tenders?preset=7d"
           icon={<CalendarClock size={19} />}
         />
         <KpiCard
-          label="Total value"
-          value={formatGel(data.totalEstimatedValue)}
-          hint="Estimated procurement value"
-          tone="violet"
-          icon={<Banknote size={19} />}
+          label="New this week"
+          value={String(data.newThisWeek)}
+          hint="Announced in the last 7 days"
+          tone="red"
+          to={`/tenders?dateFrom=${formatISO(subDays(new Date(), 6), { representation: 'date' })}`}
+          icon={<Sparkles size={19} />}
         />
         <KpiCard
-          label="Average value"
-          value={formatGel(data.averageEstimatedValue)}
-          hint="Per tender"
+          label="Open, not tracked"
+          value={String(data.openUntracked)}
+          hint="Not on the engagement list"
+          tone="violet"
+          to={`/tenders?status=${encodeURIComponent(OPEN_STATUS_QUERY)}`}
+          icon={<Inbox size={19} />}
+        />
+        <KpiCard
+          label="On engagement"
+          value={String(data.onEngagement)}
+          hint={
+            data.engagedCount
+              ? `${data.engagedCount} marked to engage`
+              : 'Watching or assigned'
+          }
           tone="green"
-          icon={<TrendingUp size={19} />}
+          to="/engagement"
+          icon={<Bookmark size={19} />}
         />
       </section>
 
@@ -258,13 +272,13 @@ export function DashboardPage() {
       </section>
 
       <section className="dashboard-grid">
-        <Card eyebrow="Value" title="Value by category">
+        <Card eyebrow="Pipeline" title="Open by category">
           <div style={{ height: 240 }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={data.byCategory.map((c) => ({
                   name: shortCategory(c.categoryName),
-                  value: c.value,
+                  open: c.openCount,
                   count: c.count,
                 }))}
                 layout="vertical"
@@ -273,12 +287,17 @@ export function DashboardPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#e6e8ec" />
                 <XAxis
                   type="number"
-                  tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`}
+                  allowDecimals={false}
                   tick={{ fontSize: 11, fill: '#667085' }}
                 />
                 <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 11, fill: '#667085' }} />
-                <Tooltip formatter={(v) => formatGel(Number(v))} />
-                <Bar dataKey="value" radius={[0, 6, 6, 0]}>
+                <Tooltip
+                  formatter={(v, _name, item) => {
+                    const total = Number(item?.payload?.count ?? 0)
+                    return [`${v} open · ${total} total`, 'Open']
+                  }}
+                />
+                <Bar dataKey="open" radius={[0, 6, 6, 0]}>
                   {data.byCategory.map((c) => (
                     <Cell key={c.categoryCode} fill={categoryColor(c.categoryCode)} />
                   ))}
@@ -302,16 +321,16 @@ export function DashboardPage() {
               <thead>
                 <tr>
                   <th>Buyer</th>
-                  <th>Tenders</th>
-                  <th>Value</th>
+                  <th>Open</th>
+                  <th>All</th>
                 </tr>
               </thead>
               <tbody>
                 {data.topBuyers.map((b) => (
                   <tr key={b.buyer}>
                     <td>{b.buyer}</td>
+                    <td>{b.openCount}</td>
                     <td>{b.count}</td>
-                    <td>{formatGel(b.value)}</td>
                   </tr>
                 ))}
               </tbody>

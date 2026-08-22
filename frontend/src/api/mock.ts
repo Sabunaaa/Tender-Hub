@@ -1,4 +1,4 @@
-import { addDays, formatISO } from 'date-fns'
+import { addDays, formatISO, subDays } from 'date-fns'
 import { DEVICE_KEYWORD_ALIASES } from '../lib/tenderFilters'
 import { ALL_CPV_CATEGORIES } from './cpvCategories'
 import { MOCK_RUNS, MOCK_TENDERS, mockTrackedStore } from './fixtures'
@@ -231,8 +231,14 @@ export const mockApi: DataSource = {
       .filter((t) => t.bidDeadline && t.bidDeadline >= today && t.bidDeadline <= inHorizon && OPEN_STATUSES.has(t.status))
       .sort((a, b) => (a.bidDeadline ?? '').localeCompare(b.bidDeadline ?? ''))
 
-    const values = items.map((t) => t.estimatedValue ?? 0)
-    const totalEstimatedValue = values.reduce((a, b) => a + b, 0)
+    const weekStart = formatISO(subDays(new Date(), 6), { representation: 'date' })
+    const newThisWeek = items.filter((t) => t.announcementDate.slice(0, 10) >= weekStart).length
+    const trackedIds = new Set(mockEngagements.map((e) => e.appId).filter((id): id is number => id != null))
+    const trackedNumbers = new Set(mockEngagements.map((e) => e.announcementNumber.toLowerCase()))
+    const openUntracked = items.filter((t) => {
+      if (!OPEN_STATUSES.has(t.status)) return false
+      return !trackedIds.has(t.appId) && !trackedNumbers.has(t.announcementNumber.toLowerCase())
+    }).length
 
     const monthMap = new Map<string, { categoryCode: string; categoryName: string; count: number; value: number }>()
     for (const t of items) {
@@ -249,15 +255,17 @@ export const mockApi: DataSource = {
       monthMap.set(key, cur)
     }
 
-    const catMap = new Map<string, { categoryCode: string; categoryName: string; count: number; value: number }>()
+    const catMap = new Map<string, { categoryCode: string; categoryName: string; count: number; openCount: number; value: number }>()
     for (const t of items) {
       const cur = catMap.get(t.categoryCode) ?? {
         categoryCode: t.categoryCode,
         categoryName: t.categoryName,
         count: 0,
+        openCount: 0,
         value: 0,
       }
       cur.count += 1
+      if (OPEN_STATUSES.has(t.status)) cur.openCount += 1
       cur.value += t.estimatedValue ?? 0
       catMap.set(t.categoryCode, cur)
     }
@@ -265,10 +273,11 @@ export const mockApi: DataSource = {
     const statusMap = new Map<string, number>()
     for (const t of items) statusMap.set(t.status, (statusMap.get(t.status) ?? 0) + 1)
 
-    const buyerMap = new Map<string, { count: number; value: number }>()
+    const buyerMap = new Map<string, { count: number; openCount: number; value: number }>()
     for (const t of items) {
-      const cur = buyerMap.get(t.buyer) ?? { count: 0, value: 0 }
+      const cur = buyerMap.get(t.buyer) ?? { count: 0, openCount: 0, value: 0 }
       cur.count += 1
+      if (OPEN_STATUSES.has(t.status)) cur.openCount += 1
       cur.value += t.estimatedValue ?? 0
       buyerMap.set(t.buyer, cur)
     }
@@ -283,17 +292,19 @@ export const mockApi: DataSource = {
       openTenders,
       closingWithin7Days: closingSoon.length,
       closingSoonDays: horizon,
-      totalEstimatedValue,
-      averageEstimatedValue: items.length ? totalEstimatedValue / items.length : 0,
+      newThisWeek,
+      openUntracked,
+      onEngagement: mockEngagements.length,
+      engagedCount: mockEngagements.filter((e) => e.engaged).length,
       currency: 'GEL',
       byMonth: [...monthMap.entries()]
         .map(([key, v]) => ({ month: key.split('|')[0]!, ...v }))
         .sort((a, b) => a.month.localeCompare(b.month)),
-      byCategory: [...catMap.values()].sort((a, b) => b.count - a.count),
+      byCategory: [...catMap.values()].sort((a, b) => b.openCount - a.openCount || b.count - a.count),
       byStatus: [...statusMap.entries()].map(([status, count]) => ({ status, count })),
       topBuyers: [...buyerMap.entries()]
         .map(([buyer, v]) => ({ buyer, ...v }))
-        .sort((a, b) => b.count - a.count)
+        .sort((a, b) => b.openCount - a.openCount || b.count - a.count)
         .slice(0, 10),
       closingSoon: closingSoon.slice(0, 8).map(toSummary),
       newSince: {

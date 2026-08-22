@@ -29,7 +29,7 @@ def test_get_stats_aggregates_in_sql(tmp_repo):
                 "buyer": "City Hall",
                 "category_code": "30200000",
                 "category_name": "Computers",
-                "announcement_date": "2026-01-11",
+                "announcement_date": today.isoformat(),
                 "bid_deadline": f"{later}T12:00:00",
                 "estimated_value": 50.0,
             },
@@ -89,32 +89,50 @@ def test_get_stats_aggregates_in_sql(tmp_repo):
                 f"INSERT INTO tenders ({cols}) VALUES ({', '.join('?' * (1 + len(payload)))})",
                 [row["app_id"], *payload.values()],
             )
+        conn.execute(
+            """
+            INSERT INTO engagements (
+                announcement_number, app_id, engaged, account_manager, solution_manager, domain,
+                created_at, updated_at
+            ) VALUES ('NAT1', 1, 1, '', '', '', '2026-08-01T00:00:00', '2026-08-01T00:00:00')
+            """
+        )
 
     stats = get_stats(db)
     assert stats["totalTenders"] == 4
     assert stats["openTenders"] == 2
     assert stats["closingWithin7Days"] == 1
     assert stats["closingSoonDays"] == 7
-    assert stats["totalEstimatedValue"] == 175.0
-    assert stats["averageEstimatedValue"] == 43.75
+    assert stats["newThisWeek"] == 1
+    assert stats["openUntracked"] == 1
+    assert stats["onEngagement"] == 1
+    assert stats["engagedCount"] == 1
     assert stats["currency"] == "GEL"
     assert {item["categoryCode"]: item["count"] for item in stats["byCategory"]} == {
         "30200000": 3,
         "32400000": 1,
+    }
+    assert {item["categoryCode"]: item["openCount"] for item in stats["byCategory"]} == {
+        "30200000": 2,
+        "32400000": 0,
     }
     assert {item["status"]: item["count"] for item in stats["byStatus"]} == {
         "Tender announced": 2,
         "Contract awarded": 1,
         "Unknown": 1,
     }
-    buyers = {item["buyer"]: item["count"] for item in stats["topBuyers"]}
-    assert buyers["City Hall"] == 2
-    assert buyers["Ministry"] == 1
-    assert buyers["Unknown"] == 1
+    buyers = {item["buyer"]: item for item in stats["topBuyers"]}
+    assert buyers["City Hall"]["count"] == 2
+    assert buyers["City Hall"]["openCount"] == 2
+    assert buyers["Ministry"]["count"] == 1
+    assert buyers["Ministry"]["openCount"] == 0
+    assert buyers["Unknown"]["count"] == 1
+    assert buyers["Unknown"]["openCount"] == 0
     assert len(stats["closingSoon"]) == 1
     assert stats["closingSoon"][0]["appId"] == 1
     months = {(item["month"], item["categoryCode"]): item["count"] for item in stats["byMonth"]}
-    assert months[("2026-01", "30200000")] == 2
+    assert months[("2026-01", "30200000")] == 1
+    assert months[(today.strftime("%Y-%m"), "30200000")] == 1
     assert months[("2026-02", "32400000")] == 1
     assert months[("2026-02", "30200000")] == 1
 

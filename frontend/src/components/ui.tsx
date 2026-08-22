@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { cn, statusColor } from '../lib/format'
 
 export function PageHeader({
@@ -56,23 +57,33 @@ export function KpiCard({
   hint,
   icon,
   tone = 'red',
+  to,
 }: {
   label: string
   value: string
   hint?: string
   icon?: ReactNode
   tone?: 'red' | 'blue' | 'violet' | 'amber' | 'green'
+  to?: string
 }) {
-  return (
-    <article className="stat-card">
+  const body = (
+    <>
       {icon && <div className={`stat-icon ${tone}`}>{icon}</div>}
       <div>
         <span>{label}</span>
         <strong>{value}</strong>
         {hint && <small>{hint}</small>}
       </div>
-    </article>
+    </>
   )
+  if (to) {
+    return (
+      <Link to={to} className="stat-card">
+        {body}
+      </Link>
+    )
+  }
+  return <article className="stat-card">{body}</article>
 }
 
 export function StatusBadge({ status }: { status: string }) {
