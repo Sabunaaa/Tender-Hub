@@ -251,6 +251,7 @@ export interface Engagement {
   estimatedValue: number | null
   currency: string
   bidderCount: number
+  info: string
   createdAt: string
   updatedAt: string
 }
@@ -276,7 +277,7 @@ export interface DataSource {
   addEngagement(announcementNumber: string): Promise<Engagement>
   updateEngagement(
     id: number,
-    patch: { engaged?: boolean; accountManager?: string; solutionManager?: string; product?: string },
+    patch: { engaged?: boolean; accountManager?: string; solutionManager?: string; product?: string; info?: string },
   ): Promise<Engagement>
   deleteEngagement(id: number): Promise<void>
 }

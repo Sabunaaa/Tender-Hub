@@ -113,7 +113,7 @@ export function ParticleWave({ className = '' }: ParticleWaveProps) {
 
     const tick = () => {
       if (disposed) return
-      material.uniforms.uTime.value += 0.05
+      material.uniforms.uTime.value += 0.018
       camera.lookAt(0, 0, 0)
       renderer.render(scene, camera)
       animationId = requestAnimationFrame(tick)

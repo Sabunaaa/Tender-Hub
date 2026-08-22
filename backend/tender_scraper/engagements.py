@@ -61,6 +61,7 @@ def _row(r) -> dict[str, Any]:
         "estimatedValue": r["estimated_value"],
         "currency": r["currency"] or "GEL",
         "bidderCount": r["bidder_count"] or 0,
+        "info": (r["info"] or "") if "info" in r.keys() else "",
         "createdAt": r["created_at"],
         "updatedAt": r["updated_at"],
     }
@@ -68,7 +69,7 @@ def _row(r) -> dict[str, Any]:
 
 _SELECT = """
     SELECT e.id, e.announcement_number, e.app_id, e.engaged, e.account_manager, e.solution_manager,
-           e.domain, e.created_at, e.updated_at,
+           e.domain, e.info, e.created_at, e.updated_at,
            t.title, t.buyer, t.status, t.procurement_type, t.donor, t.category_code, t.category_name,
            t.announcement_date, t.bids_accepted_from, t.bid_deadline,
            t.estimated_value, t.currency, t.bidder_count
@@ -119,9 +120,9 @@ def add_engagement(code: str, db_path=None) -> dict[str, Any]:
         conn.execute(
             """
             INSERT INTO engagements (
-                announcement_number, app_id, engaged, account_manager, solution_manager, domain,
+                announcement_number, app_id, engaged, account_manager, solution_manager, domain, info,
                 created_at, updated_at
-            ) VALUES (?, ?, 0, '', '', '', ?, ?)
+            ) VALUES (?, ?, 0, '', '', '', '', ?, ?)
             """,
             (tender["announcement_number"], tender["app_id"], stamp, stamp),
         )
@@ -150,6 +151,9 @@ def update_engagement(engagement_id: int, patch: dict[str, Any], db_path=None) -
             raw = patch["product"] if "product" in patch else patch["domain"]
             fields.append("domain = ?")
             params.append(_normalize_product(raw))
+        if "info" in patch:
+            fields.append("info = ?")
+            params.append((patch["info"] or "").strip()[:4000])
         if fields:
             fields.append("updated_at = ?")
             params.append(now_iso())

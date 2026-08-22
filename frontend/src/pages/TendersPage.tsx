@@ -210,10 +210,21 @@ export function TendersPage() {
       return
     }
 
-    // Keep existing filters (value chips, categories, etc.) and only swap the date range
     const next = new URLSearchParams(params)
-    next.set('preset', preset)
     next.set('page', '1')
+
+    if (activeDatePreset(params) === preset) {
+      next.delete('preset')
+      next.delete('deadlinePreset')
+      next.delete('dateFrom')
+      next.delete('dateTo')
+      next.delete('deadlineFrom')
+      next.delete('deadlineTo')
+      setParams(next)
+      return
+    }
+
+    next.set('preset', preset)
 
     if (preset === '30d' || preset === '90d' || preset === 'year') {
       const days = preset === '30d' ? 30 : preset === '90d' ? 90 : 365

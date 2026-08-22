@@ -29,6 +29,15 @@ async function authRequest(path: string, init?: RequestInit): Promise<Response> 
   })
 }
 
+export async function lockSession() {
+  try {
+    await authRequest('/api/auth', { method: 'DELETE' })
+  } catch {
+    // Still lock the UI if the request fails.
+  }
+  window.dispatchEvent(new Event('tender-lock'))
+}
+
 export function AccessGate({ children }: { children: ReactNode }) {
   const [authReady, setAuthReady] = useState(false)
   const [authed, setAuthed] = useState(readUnlockedHint)

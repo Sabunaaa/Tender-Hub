@@ -579,6 +579,7 @@ export const mockApi: DataSource = {
       estimatedValue: tender.estimatedValue,
       currency: tender.currency,
       bidderCount: tender.bidderCount,
+      info: '',
       createdAt: now,
       updatedAt: now,
     }

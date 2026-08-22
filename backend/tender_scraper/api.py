@@ -219,6 +219,7 @@ class UpdateEngagementBody(BaseModel):
     solutionManager: str | None = None
     product: str | None = None
     domain: str | None = None
+    info: str | None = None
 
 
 @app.get("/api/engagements")

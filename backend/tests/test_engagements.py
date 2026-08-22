@@ -59,6 +59,10 @@ def test_update_engaged_and_managers(tmp_repo):
     assert updated["accountManager"] == "Nino"
     assert updated["solutionManager"] == "Giorgi"
     assert updated["product"] == ""
+    assert updated["info"] == ""
+
+    with_info = update_engagement(row["id"], {"info": "  Call buyer Monday  "}, db)
+    assert with_info["info"] == "Call buyer Monday"
 
     with_product = update_engagement(row["id"], {"product": "storage"}, db)
     assert with_product["product"] == "Storage"

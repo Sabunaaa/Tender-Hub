@@ -4,6 +4,7 @@ import {
   ChevronRight,
   Handshake,
   LayoutDashboard,
+  LogOut,
   Menu,
   Search,
   Settings,
@@ -12,6 +13,7 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { isMockMode } from '../api'
+import { lockSession } from './AccessGate'
 import { runsQueryOptions } from '../api/runsQuery'
 import { cn } from '../lib/format'
 import { SETTINGS_TABS } from '../lib/settingsNav'
@@ -234,6 +236,18 @@ export function AppLayout() {
 
         <div className="sidebar-bottom">
           <SettingsNav collapsed={collapsed} onNavigate={() => setMobileOpen(false)} />
+          <button
+            type="button"
+            className="nav-item logout-item"
+            title="Log out"
+            onClick={() => {
+              void lockSession()
+              setMobileOpen(false)
+            }}
+          >
+            <LogOut size={19} />
+            <span>Log out</span>
+          </button>
           {!collapsed && <ScrapeStatusBadge onNavigate={() => setMobileOpen(false)} />}
         </div>
       </aside>
@@ -252,7 +266,7 @@ export function AppLayout() {
           <h1>{current.title}</h1>
         </div>
         <div className="topbar-meta">
-          <strong>v1.0</strong>
+          <strong>v1.0.1</strong>
           <p>support: s84404579 - WeLink</p>
         </div>
       </header>

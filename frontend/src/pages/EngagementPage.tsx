@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Plus, Trash2 } from 'lucide-react'
+import { Info, Plus } from 'lucide-react'
 import { api } from '../api'
 import type { Engagement } from '../api'
 import { Card, ErrorState, LoadingState } from '../components/ui'
@@ -109,6 +109,8 @@ export function EngagementPage() {
   const [engageFilter, setEngageFilter] = useState('')
   const [pageSize, setPageSize] = useState(loadPageSize)
   const [page, setPage] = useState(1)
+  const [infoRow, setInfoRow] = useState<Engagement | null>(null)
+  const [infoDraft, setInfoDraft] = useState('')
   const settingsQuery = useQuery({ queryKey: ['settings'], queryFn: () => api.getSettings() })
   const listQuery = useQuery({ queryKey: ['engagements'], queryFn: () => api.listEngagements() })
   const rows = listQuery.data ?? []
@@ -265,18 +267,17 @@ export function EngagementPage() {
       patch,
     }: {
       id: number
-      patch: { engaged?: boolean; accountManager?: string; solutionManager?: string; product?: string }
+      patch: { engaged?: boolean; accountManager?: string; solutionManager?: string; product?: string; info?: string }
     }) => api.updateEngagement(id, patch),
     onSuccess: (row) => {
       qc.setQueryData(['engagements'], (old: Engagement[] | undefined) =>
         old ? old.map((item) => (item.id === row.id ? row : item)) : [row],
       )
+      if (infoRow?.id === row.id) {
+        setInfoRow(row)
+        setInfoDraft(row.info)
+      }
     },
-  })
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: number) => api.deleteEngagement(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['engagements'] }),
   })
 
   const accountManagers = settingsQuery.data?.accountManagers ?? []
@@ -510,7 +511,7 @@ export function EngagementPage() {
                   <th className="manager-col">Account</th>
                   <th className="manager-col">Solution</th>
                   <th className="engage-col">Engage?</th>
-                  <th />
+                  <th className="engage-col">Info</th>
                 </tr>
               </thead>
               <tbody>
@@ -593,12 +594,15 @@ export function EngagementPage() {
                     <td className="engage-col">
                       <button
                         type="button"
-                        className="icon-button"
-                        aria-label="Remove"
-                        disabled={deleteMutation.isPending}
-                        onClick={() => deleteMutation.mutate(row.id)}
+                        className={`icon-button${(row.info ?? '').trim() ? ' has-info' : ''}`}
+                        aria-label={(row.info ?? '').trim() ? 'Edit information' : 'Add information'}
+                        title={(row.info ?? '').trim() ? row.info : 'Add information'}
+                        onClick={() => {
+                          setInfoRow(row)
+                          setInfoDraft(row.info)
+                        }}
                       >
-                        <Trash2 size={15} />
+                        <Info size={15} />
                       </button>
                     </td>
                   </tr>
@@ -640,6 +644,67 @@ export function EngagementPage() {
             </div>
           )}
         </Card>
+      )}
+
+      {infoRow && (
+        <div
+          className="modal-backdrop"
+          onClick={() => {
+            if (!patchMutation.isPending) setInfoRow(null)
+          }}
+        >
+          <div
+            className="modal-panel info-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="info-dialog-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="info-dialog-title">Information</h2>
+            <p className="muted" style={{ marginTop: 6, fontSize: 13 }}>
+              {infoRow.announcementNumber}
+              {infoRow.buyer ? ` · ${infoRow.buyer}` : ''}
+            </p>
+            <textarea
+              className="field-input"
+              aria-label="Information"
+              rows={6}
+              maxLength={4000}
+              value={infoDraft}
+              onChange={(e) => setInfoDraft(e.target.value)}
+              placeholder="Notes for this engagement…"
+              autoFocus
+            />
+            {patchMutation.isError && (
+              <div style={{ marginTop: 10, fontSize: 12, color: 'var(--danger)' }}>
+                {errorMessage(patchMutation.error, 'Could not save information')}
+              </div>
+            )}
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={patchMutation.isPending}
+                onClick={() => setInfoRow(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                disabled={patchMutation.isPending}
+                onClick={() =>
+                  patchMutation.mutate(
+                    { id: infoRow.id, patch: { info: infoDraft } },
+                    { onSuccess: () => setInfoRow(null) },
+                  )
+                }
+              >
+                {patchMutation.isPending ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

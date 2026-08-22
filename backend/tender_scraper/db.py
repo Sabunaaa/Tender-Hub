@@ -147,6 +147,7 @@ CREATE TABLE IF NOT EXISTS engagements (
     account_manager TEXT,
     solution_manager TEXT,
     domain TEXT,
+    info TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -211,6 +212,7 @@ def init_db(db_path: Path | None = None) -> None:
         _ensure_column(conn, "tenders", "spec_text", "spec_text TEXT")
         _ensure_column(conn, "tenders", "donor", "donor TEXT")
         _ensure_column(conn, "engagements", "domain", "domain TEXT")
+        _ensure_column(conn, "engagements", "info", "info TEXT")
         for cat_id, code, name in DEFAULT_TRACKED:
             conn.execute(
                 """
