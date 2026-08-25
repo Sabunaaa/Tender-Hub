@@ -437,6 +437,22 @@ svg:focus-visible {
   margin-left: auto;
   text-align: right;
   flex: 0 0 auto;
+  border: 0;
+  background: none;
+  padding: 4px 0;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.topbar-meta:hover strong {
+  color: var(--red);
+}
+
+.topbar-meta:focus-visible {
+  outline: 2px solid var(--red);
+  outline-offset: 4px;
+  border-radius: 6px;
 }
 
 .topbar-meta strong {
@@ -527,6 +543,13 @@ svg:focus-visible {
   padding: 10px 14px;
 }
 .danger-button:hover { background: #ffe8ea; }
+
+.digest-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -4px 0 14px;
+}
 
 .chip-button {
   border: 1px solid var(--line);
@@ -1443,6 +1466,65 @@ option {
   min-height: 140px;
   resize: vertical;
   line-height: 1.45;
+}
+
+.changelog-modal {
+  width: min(640px, 100%);
+  max-height: min(82vh, 760px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.changelog-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.changelog-support {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+
+.changelog-list {
+  margin-top: 18px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.changelog-release + .changelog-release {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.changelog-release h3 {
+  margin: 0 0 10px;
+  font-size: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+}
+
+.changelog-release h3 span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.changelog-release ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.changelog-release li {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #3d4450;
 }
 
 .modal-panel h2 {

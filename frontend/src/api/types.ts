@@ -156,6 +156,8 @@ export interface DashboardStats {
   topBuyers: { buyer: string; count: number; openCount: number; value: number }[]
   closingSoon: TenderSummary[]
   newSince?: NewSinceLastRun
+  newToday?: NewSinceLastRun
+  newWeek?: NewSinceLastRun
 }
 
 export interface FilterOptions {

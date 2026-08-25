@@ -14,6 +14,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { isMockMode } from '../api'
 import { lockSession } from './AccessGate'
+import { ChangelogModal } from './ChangelogModal'
+import { APP_VERSION } from '../lib/changelog'
 import { runsQueryOptions } from '../api/runsQuery'
 import { cn } from '../lib/format'
 import { SETTINGS_TABS } from '../lib/settingsNav'
@@ -160,6 +162,7 @@ export function AppLayout() {
   const location = useLocation()
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [changelogOpen, setChangelogOpen] = useState(false)
 
   const current = useMemo(() => {
     const settingsMatch = [...SETTINGS_TABS]
@@ -265,15 +268,21 @@ export function AppLayout() {
           <p>{current.eyebrow}</p>
           <h1>{current.title}</h1>
         </div>
-        <div className="topbar-meta">
-          <strong>v1.0.1</strong>
+        <button
+          type="button"
+          className="topbar-meta"
+          onClick={() => setChangelogOpen(true)}
+          title="Version notes"
+        >
+          <strong>v{APP_VERSION}</strong>
           <p>support: s84404579 - WeLink</p>
-        </div>
+        </button>
       </header>
 
       <main className="main-content">
         <Outlet />
       </main>
+      {changelogOpen && <ChangelogModal onClose={() => setChangelogOpen(false)} />}
     </div>
   )
 }

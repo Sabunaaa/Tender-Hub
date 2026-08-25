@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 from .repository import Repository
 
-# Subset of portal CPV categories — enough for the picker; ids match SPA portal.
+# Fallback if the frontend list cannot be read (ids match the SPA portal).
 CPV_SEED: list[tuple[int, str, str]] = [
     (18864, "03100000", "Agricultural and horticultural products"),
     (18865, "03200000", "Cereals, potatoes, vegetables, fruits and nuts"),
@@ -54,8 +57,27 @@ CPV_SEED: list[tuple[int, str, str]] = [
     (19120, "85100000", "Health services"),
 ]
 
+_FRONTEND_ENTRY = re.compile(
+    r"\{\s*id:\s*(\d+),\s*code:\s*'(\d+)',\s*name:\s*'((?:\\'|[^'])*)'"
+)
+_FRONTEND_LIST = Path(__file__).resolve().parents[2] / "frontend" / "src" / "api" / "cpvCategories.ts"
+
+
+def load_cpv_categories() -> list[tuple[int, str, str]]:
+    """Prefer the full portal list shipped with the frontend picker."""
+    if _FRONTEND_LIST.is_file():
+        text = _FRONTEND_LIST.read_text(encoding="utf-8")
+        rows = [
+            (int(i), code, name.replace("\\'", "'"))
+            for i, code, name in _FRONTEND_ENTRY.findall(text)
+        ]
+        if len(rows) >= len(CPV_SEED):
+            return rows
+    return list(CPV_SEED)
+
 
 def seed_cpv_categories(repo: Repository | None = None) -> int:
     repo = repo or Repository()
-    repo.upsert_cpv_categories(CPV_SEED)
-    return len(CPV_SEED)
+    categories = load_cpv_categories()
+    repo.upsert_cpv_categories(categories)
+    return len(categories)

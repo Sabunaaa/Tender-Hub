@@ -471,6 +471,7 @@ class ScrapePipeline:
                             if parts is None:
                                 skipped += 1
                                 processed += 1
+                                self.repo.claim_for_tracked_category(row.app_id, cat["code"], cat["name"])
                                 continue
                             work.append((row, parts))
 

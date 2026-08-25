@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { formatDistanceToNow, formatISO, subDays } from 'date-fns'
@@ -36,7 +37,29 @@ const OPEN_STATUS_QUERY = [
   'Selection/Evaluation',
 ].join(',')
 
+const DIGESTS = [
+  {
+    id: 'last' as const,
+    label: 'New since last scrape',
+    empty: (ago: string | null) =>
+      ago
+        ? `No new tenders in the run that finished ${ago}.`
+        : 'No new tenders yet — run a scrape to populate this.',
+  },
+  {
+    id: 'today' as const,
+    label: "Today's scrape results",
+    empty: () => "No tenders first seen in today's scrapes.",
+  },
+  {
+    id: 'week' as const,
+    label: "This week's scrape results",
+    empty: () => "No tenders first seen in this week's scrapes.",
+  },
+]
+
 export function DashboardPage() {
+  const [digestMode, setDigestMode] = useState<(typeof DIGESTS)[number]['id']>('last')
   const { data, isLoading, error } = useQuery({
     queryKey: ['stats'],
     queryFn: () => api.getStats(),
@@ -62,10 +85,18 @@ export function DashboardPage() {
     ? Math.round((data.openTenders / data.totalTenders) * 100)
     : 0
 
-  const newSince = data.newSince
+  const digest = DIGESTS.find((item) => item.id === digestMode) ?? DIGESTS[0]!
+  const digestData =
+    digestMode === 'today'
+      ? data.newToday
+      : digestMode === 'week'
+        ? data.newWeek
+        : data.newSince
+  const newSince = digestData ?? { count: 0, items: [] as typeof data.closingSoon }
   const scrapedAgo = (() => {
-    if (!newSince?.since) return null
-    const d = new Date(newSince.since)
+    const last = data.newSince?.runFinishedAt ?? data.newSince?.since
+    if (!last) return null
+    const d = new Date(last)
     if (Number.isNaN(d.getTime())) return null
     return formatDistanceToNow(d, { addSuffix: true })
   })()
@@ -151,11 +182,10 @@ export function DashboardPage() {
         />
       </section>
 
-      {newSince && (
-        <div style={{ marginBottom: 18 }}>
+      <div style={{ marginBottom: 18 }}>
           <Card
             eyebrow="Daily digest"
-            title="New since last scrape"
+            title={digest.label}
             action={
               <div className="toolbar-actions">
                 {newSince.count > 0 && (
@@ -164,16 +194,27 @@ export function DashboardPage() {
                   </span>
                 )}
                 <Link className="text-button" to="/settings/scraper">
-                  {scrapedAgo ? `Scraped ${scrapedAgo}` : 'Scrape history'}
+                  {digestMode === 'last' && scrapedAgo ? `Scraped ${scrapedAgo}` : 'Scrape history'}
                 </Link>
               </div>
             }
           >
+            <div className="digest-tabs">
+              {DIGESTS.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`chip-button${digestMode === item.id ? ' active' : ''}`}
+                  aria-pressed={digestMode === item.id}
+                  onClick={() => setDigestMode(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
             {newSince.count === 0 ? (
               <div className="empty-state" style={{ minHeight: 100 }}>
-                {scrapedAgo
-                  ? `No new tenders in the run that finished ${scrapedAgo}.`
-                  : 'No new tenders yet — run a scrape to populate this.'}
+                {digest.empty(scrapedAgo)}
               </div>
             ) : (
               <div className="table-wrap">
@@ -221,7 +262,6 @@ export function DashboardPage() {
             )}
           </Card>
         </div>
-      )}
 
       <section className="dashboard-grid">
         <Card eyebrow="Volume" title="Tenders per month">

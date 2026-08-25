@@ -135,6 +135,9 @@ def test_get_stats_aggregates_in_sql(tmp_repo):
     assert months[(today.strftime("%Y-%m"), "30200000")] == 1
     assert months[("2026-02", "32400000")] == 1
     assert months[("2026-02", "30200000")] == 1
+    assert stats["newToday"]["count"] >= 1
+    assert stats["newWeek"]["count"] >= stats["newToday"]["count"]
+    assert "items" in stats["newSince"]
 
 
 def test_get_stats_empty_when_no_tracked(tmp_path):

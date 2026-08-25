@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from .db import get_connection
 from .keywords import keyword_clause
 from .repository import Repository
-from .settings import load_settings
+from .settings import TBILISI, load_settings
 
 
 OPEN_STATUSES = (
@@ -243,6 +243,42 @@ EMPTY_NEW_SINCE: dict[str, Any] = {
 }
 
 
+def _new_tenders_since(
+    conn,
+    where: str,
+    codes: list[str],
+    cutoff_sql: str,
+    cutoff_param: list[Any],
+    *,
+    since: str | None = None,
+    run_id: int | None = None,
+    run_status: str | None = None,
+    run_finished_at: str | None = None,
+    limit: int = 8,
+) -> dict[str, Any]:
+    condition = f"{where} AND datetime(created_at) >= {cutoff_sql}"
+    count = conn.execute(
+        f"SELECT COUNT(*) AS c FROM tenders {condition}",
+        codes + cutoff_param,
+    ).fetchone()["c"]
+    rows = conn.execute(
+        f"""
+        SELECT * FROM tenders {condition}
+        ORDER BY datetime(created_at) DESC, announcement_date DESC
+        LIMIT ?
+        """,
+        codes + cutoff_param + [limit],
+    ).fetchall()
+    return {
+        "since": since,
+        "runId": run_id,
+        "runStatus": run_status,
+        "runFinishedAt": run_finished_at,
+        "count": count,
+        "items": [_row_to_summary(r) for r in rows],
+    }
+
+
 def _new_since_last_run(conn, where: str, codes: list[str], limit: int = 8) -> dict[str, Any]:
     """Tenders first inserted by the most recent completed scrape run.
 
@@ -261,35 +297,42 @@ def _new_since_last_run(conn, where: str, codes: list[str], limit: int = 8) -> d
     ).fetchone()
 
     if run and run["started_at"]:
-        cutoff_sql = "datetime(?)"
-        cutoff_param: list[Any] = [run["started_at"]]
-    else:
-        # No completed run yet (fresh database): fall back to the last 7 days.
-        cutoff_sql = "datetime('now', '-7 days')"
-        cutoff_param = []
+        return _new_tenders_since(
+            conn,
+            where,
+            codes,
+            "datetime(?)",
+            [run["started_at"]],
+            since=run["started_at"],
+            run_id=run["id"],
+            run_status=run["status"],
+            run_finished_at=run["finished_at"],
+            limit=limit,
+        )
+    # No completed run yet (fresh database): fall back to the last 7 days.
+    return _new_tenders_since(
+        conn,
+        where,
+        codes,
+        "datetime('now', '-7 days')",
+        [],
+        limit=limit,
+    )
 
-    condition = f"{where} AND datetime(created_at) >= {cutoff_sql}"
-    count = conn.execute(
-        f"SELECT COUNT(*) AS c FROM tenders {condition}",
-        codes + cutoff_param,
-    ).fetchone()["c"]
-    rows = conn.execute(
-        f"""
-        SELECT * FROM tenders {condition}
-        ORDER BY datetime(created_at) DESC, announcement_date DESC
-        LIMIT ?
-        """,
-        codes + cutoff_param + [limit],
-    ).fetchall()
 
-    return {
-        "since": run["started_at"] if run else None,
-        "runId": run["id"] if run else None,
-        "runStatus": run["status"] if run else None,
-        "runFinishedAt": run["finished_at"] if run else None,
-        "count": count,
-        "items": [_row_to_summary(r) for r in rows],
-    }
+def _utc_naive(value: datetime) -> str:
+    return value.astimezone(timezone.utc).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _new_in_tbilisi_window(conn, where: str, codes: list[str], start: datetime) -> dict[str, Any]:
+    return _new_tenders_since(
+        conn,
+        where,
+        codes,
+        "datetime(?)",
+        [_utc_naive(start)],
+        since=start.isoformat(),
+    )
 
 
 def get_stats(db_path=None) -> dict[str, Any]:
@@ -316,6 +359,8 @@ def get_stats(db_path=None) -> dict[str, Any]:
                 "topBuyers": [],
                 "closingSoon": [],
                 "newSince": dict(EMPTY_NEW_SINCE),
+                "newToday": dict(EMPTY_NEW_SINCE),
+                "newWeek": dict(EMPTY_NEW_SINCE),
             }
         placeholders = ",".join("?" * len(codes))
         where = f"WHERE category_code IN ({placeholders})"
@@ -470,6 +515,9 @@ def get_stats(db_path=None) -> dict[str, Any]:
             [*codes, today, horizon_end, *OPEN_STATUSES],
         ).fetchall()
 
+        tbilisi_today = datetime.now(TBILISI).replace(hour=0, minute=0, second=0, microsecond=0)
+        tbilisi_week = tbilisi_today - timedelta(days=tbilisi_today.weekday())
+
         return {
             "totalTenders": total,
             "openTenders": int(totals["open_count"] or 0),
@@ -486,6 +534,8 @@ def get_stats(db_path=None) -> dict[str, Any]:
             "topBuyers": top_buyers,
             "closingSoon": [_row_to_summary(r) for r in closing],
             "newSince": _new_since_last_run(conn, where, codes),
+            "newToday": _new_in_tbilisi_window(conn, where, codes, tbilisi_today),
+            "newWeek": _new_in_tbilisi_window(conn, where, codes, tbilisi_week),
         }
 
 

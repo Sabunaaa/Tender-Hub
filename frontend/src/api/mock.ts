@@ -315,6 +315,22 @@ export const mockApi: DataSource = {
         count: newlyAdded.length,
         items: newlyAdded.map(toSummary),
       },
+      newToday: {
+        since: today,
+        runId: null,
+        runStatus: null,
+        runFinishedAt: null,
+        count: newlyAdded.filter((t) => t.announcementDate.slice(0, 10) === today).length,
+        items: newlyAdded.filter((t) => t.announcementDate.slice(0, 10) === today).map(toSummary),
+      },
+      newWeek: {
+        since: weekStart,
+        runId: null,
+        runStatus: null,
+        runFinishedAt: null,
+        count: newThisWeek,
+        items: newlyAdded.filter((t) => t.announcementDate.slice(0, 10) >= weekStart).map(toSummary),
+      },
     }
   },
 

@@ -46,14 +46,30 @@ class Repository:
         """
         replace = frozenset(replace) if replace is not None else ALL_TENDER_PARTS
         scraped_at = now_iso()
-        if category_code and not tender.category_code:
-            tender.category_code = category_code
-        if category_name and not tender.category_name:
-            tender.category_name = category_name
 
         with get_connection(self.db_path) as conn:
-            existing = conn.execute("SELECT status FROM tenders WHERE app_id = ?", (tender.app_id,)).fetchone()
+            existing = conn.execute(
+                "SELECT status, category_code, category_name FROM tenders WHERE app_id = ?",
+                (tender.app_id,),
+            ).fetchone()
             is_new = existing is None
+            tracked_codes = {
+                r["code"]
+                for r in conn.execute("SELECT code FROM tracked_categories WHERE enabled = 1")
+            }
+            # Listing "Procuring category" is often a more specific or sibling CPV
+            # than the division we searched. Keep an existing tracked bucket; otherwise
+            # attribute the tender to the category this scrape is collecting.
+            existing_code = (existing["category_code"] if existing else "") or ""
+            if existing_code in tracked_codes:
+                tender.category_code = existing_code
+                tender.category_name = existing["category_name"] or tender.category_name
+            elif category_code:
+                tender.category_code = category_code
+                if category_name:
+                    tender.category_name = category_name
+            elif category_name and not tender.category_name:
+                tender.category_name = category_name
             conn.execute(
                 """
                 INSERT INTO tenders (
@@ -113,10 +129,20 @@ class Repository:
             # Replace only the child rows whose source tab was fetched this time
             if "main" in replace:
                 conn.execute("DELETE FROM tender_cpv_codes WHERE app_id = ?", (tender.app_id,))
+                codes_seen: set[str] = set()
                 for cpv in tender.cpv_codes:
+                    code = (cpv.get("code") or "").strip()
+                    if not code or code in codes_seen:
+                        continue
+                    codes_seen.add(code)
                     conn.execute(
                         "INSERT OR IGNORE INTO tender_cpv_codes (app_id, code, name) VALUES (?,?,?)",
-                        (tender.app_id, cpv.get("code"), cpv.get("name")),
+                        (tender.app_id, code, cpv.get("name")),
+                    )
+                if tender.category_code and tender.category_code not in codes_seen:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO tender_cpv_codes (app_id, code, name) VALUES (?,?,?)",
+                        (tender.app_id, tender.category_code, tender.category_name),
                     )
 
             if "docs" in replace:
@@ -341,6 +367,41 @@ class Repository:
     def remove_tracked(self, category_id: int) -> None:
         with get_connection(self.db_path) as conn:
             conn.execute("DELETE FROM tracked_categories WHERE id = ?", (category_id,))
+
+    def claim_for_tracked_category(self, app_id: int, code: str, name: str) -> bool:
+        """Move a stored tender onto `code` when its procuring CPV is not tracked.
+
+        Unchanged listings skip a full upsert, so without this a backfill of a new
+        tracked category would leave those rows tagged with the portal's displayed
+        CPV (often a sibling code) and they would never appear in the explorer.
+        """
+        with get_connection(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT category_code FROM tenders WHERE app_id = ?",
+                (app_id,),
+            ).fetchone()
+            if not row:
+                return False
+            tracked = {
+                r["code"]
+                for r in conn.execute("SELECT code FROM tracked_categories WHERE enabled = 1")
+            }
+            current = row["category_code"] or ""
+            if current in tracked:
+                return False
+            conn.execute(
+                """
+                UPDATE tenders
+                SET category_code = ?, category_name = ?, updated_at = ?
+                WHERE app_id = ?
+                """,
+                (code, name, now_iso(), app_id),
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO tender_cpv_codes (app_id, code, name) VALUES (?,?,?)",
+                (app_id, code, name),
+            )
+            return True
 
     def mark_scraped(self, category_id: int) -> None:
         with get_connection(self.db_path) as conn:
