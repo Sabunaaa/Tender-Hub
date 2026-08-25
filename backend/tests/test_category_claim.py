@@ -1,6 +1,5 @@
 from tender_scraper.db import get_connection
-from tender_scraper.parsers import ListingRow, ParsedTender
-from tender_scraper.pipeline import listing_searches, merge_listing_rows
+from tender_scraper.parsers import ParsedTender
 from tender_scraper.queries import list_tenders
 
 
@@ -54,12 +53,7 @@ def test_skip_claims_orphans_tagged_with_an_untracked_cpv(tmp_repo):
     assert list_tenders({"categoryCodes": ["48800000"]}, tmp_repo.db_path)["total"] == 1
 
 
-def test_listing_searches_runs_dropdown_and_cpv_code_separately():
-    searches = listing_searches({"id": 19008, "code": "48800000"})
-    assert searches == [{"cpv_category": 19008}, {"cpv_code": "48800000"}]
-
-
-def test_search_sends_cpv_code_without_dropdown(monkeypatch):
+def test_search_sends_dropdown_id_not_cpv_code_field(monkeypatch):
     from tender_scraper.client import TenderPortalClient
 
     captured: dict[str, object] = {}
@@ -70,38 +64,63 @@ def test_search_sends_cpv_code_without_dropdown(monkeypatch):
 
     monkeypatch.setattr(TenderPortalClient, "start_session", lambda self: None)
     monkeypatch.setattr(TenderPortalClient, "_request", fake_request)
-    TenderPortalClient(delay=0).search(cpv_code="48800000")
-    assert captured["app_basecode"] == "0"
-    assert captured["app_codes"] == "48800000"
+    TenderPortalClient(delay=0).search(cpv_category=19008)
+    assert captured["app_basecode"] == "19008"
+    assert captured["app_codes"] == ""
 
 
-def test_merge_listing_rows_keeps_first_app_id():
-    def row(app_id: int, code: str) -> ListingRow:
-        return ListingRow(
-            app_id=app_id,
-            key="k",
-            announcement_number=f"NAT{app_id}",
-            status="Bid submission",
-            procurement_type="Electronic",
-            buyer="Buyer",
-            category_code=code,
-            category_name="Name",
-            announcement_date="2026-01-01",
-            bid_deadline="2026-02-01",
-            estimated_value=1.0,
-            currency="GEL",
-            bidder_count=0,
-            winner=None,
-            contract_status=None,
-            raw_html="",
-        )
-
-    merged = merge_listing_rows(
-        [row(1, "48400000"), row(2, "48400000")],
-        [row(1, "48800000"), row(3, "48800000")],
+def test_release_restores_portal_procuring_category(tmp_repo):
+    tmp_repo.add_tracked(19008, "48800000", "Information systems and servers")
+    tmp_repo.upsert_tender(
+        _tender(announcement_date="2025-06-01"),
+        category_code="48800000",
+        category_name="Information systems and servers",
     )
-    assert [r.app_id for r in merged] == [1, 2, 3]
-    assert merged[0].category_code == "48400000"
+    tmp_repo.save_raw_html(
+        697624,
+        "app_main",
+        """
+        <table class="with-label">
+          <tr><td>Procuring category</td><td>48400000 - Business transaction software</td></tr>
+        </table>
+        """,
+    )
+    dropped = tmp_repo.release_outside_listing(
+        "48800000",
+        keep_app_ids=set(),
+        date_from="2025-01-01",
+        date_to="2026-12-31",
+    )
+    assert dropped == 1
+    with get_connection(tmp_repo.db_path) as conn:
+        stored = conn.execute("SELECT category_code FROM tenders WHERE app_id = 697624").fetchone()
+    assert stored["category_code"] == "48400000"
+
+
+def test_release_keeps_tenders_that_were_in_the_dropdown(tmp_repo):
+    tmp_repo.add_tracked(19008, "48800000", "Information systems and servers")
+    tmp_repo.upsert_tender(
+        _tender(announcement_date="2025-06-01"),
+        category_code="48800000",
+        category_name="Information systems and servers",
+    )
+    tmp_repo.save_raw_html(
+        697624,
+        "app_main",
+        """
+        <table class="with-label">
+          <tr><td>Procuring category</td><td>48400000 - Business transaction software</td></tr>
+        </table>
+        """,
+    )
+    dropped = tmp_repo.release_outside_listing(
+        "48800000",
+        keep_app_ids={697624},
+        date_from="2025-01-01",
+        date_to="2026-12-31",
+    )
+    assert dropped == 0
+    assert list_tenders({"categoryCodes": ["48800000"]}, tmp_repo.db_path)["total"] == 1
 
 
 def test_seed_moves_tracked_488_onto_the_live_portal_id(tmp_repo):

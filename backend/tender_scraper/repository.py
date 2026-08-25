@@ -8,7 +8,7 @@ from typing import Any
 
 from . import config
 from .db import connect, get_connection, init_db
-from .parsers import ParsedTender
+from .parsers import ParsedTender, parse_main_tab
 from .specs import SPEC_MARKER
 
 
@@ -402,6 +402,58 @@ class Repository:
                 (app_id, code, name),
             )
             return True
+
+    def release_outside_listing(
+        self,
+        category_code: str,
+        keep_app_ids: set[int],
+        date_from: str,
+        date_to: str,
+    ) -> int:
+        """Move tenders out of ``category_code`` when the portal procuring category differs.
+
+        A CPV-code search can tag tenders whose procuring category is a sibling.
+        After a dropdown-only scrape, those extras are not in ``keep_app_ids``.
+        """
+        released = 0
+        with get_connection(self.db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT app_id, key FROM tenders
+                WHERE category_code = ?
+                  AND announcement_date >= ?
+                  AND announcement_date <= ?
+                """,
+                (category_code, date_from, date_to),
+            ).fetchall()
+            for row in rows:
+                app_id = int(row["app_id"])
+                if app_id in keep_app_ids:
+                    continue
+                raw = conn.execute(
+                    """
+                    SELECT html FROM raw_html
+                    WHERE app_id = ? AND kind = 'app_main'
+                    ORDER BY id DESC LIMIT 1
+                    """,
+                    (app_id,),
+                ).fetchone()
+                if not raw:
+                    continue
+                parsed = parse_main_tab(raw["html"], app_id, row["key"] or "")
+                portal_code = (parsed.category_code or "").strip()
+                if not portal_code or portal_code == category_code:
+                    continue
+                conn.execute(
+                    """
+                    UPDATE tenders
+                    SET category_code = ?, category_name = ?, updated_at = ?
+                    WHERE app_id = ?
+                    """,
+                    (portal_code, parsed.category_name or "", now_iso(), app_id),
+                )
+                released += 1
+        return released
 
     def mark_scraped(self, category_id: int) -> None:
         with get_connection(self.db_path) as conn:
