@@ -47,6 +47,36 @@ class ScrapeCancelled(Exception):
     """Raised when a scrape is stopped by the user."""
 
 
+def listing_searches(category: dict) -> list[dict[str, object]]:
+    """The portal has two CPV filters that cannot be combined in one request.
+
+    ``app_basecode`` is the category dropdown (division / procuring category).
+    ``app_codes`` is the CPV code field, which matches tenders that list that
+    code even when their displayed procuring category is a sibling. Sending
+    both at once returns zero rows, so callers run each query and merge.
+    """
+    searches: list[dict[str, object]] = []
+    if category.get("id"):
+        searches.append({"cpv_category": category["id"]})
+    code = str(category.get("code") or "").strip()
+    if code:
+        searches.append({"cpv_code": code})
+    return searches or [{}]
+
+
+def merge_listing_rows(*groups: list[ListingRow]) -> list[ListingRow]:
+    """Keep first occurrence of each app_id."""
+    seen: set[int] = set()
+    merged: list[ListingRow] = []
+    for group in groups:
+        for row in group:
+            if row.app_id in seen:
+                continue
+            seen.add(row.app_id)
+            merged.append(row)
+    return merged
+
+
 @dataclass
 class TenderFetch:
     """Everything one worker gathered for a single tender, ready to be written."""
@@ -180,6 +210,59 @@ class ScrapePipeline:
                 errors.append(msg)
             self.repo.finish_run(run_id, "cancelled", found, upserted, errors, skipped=skipped, processed=processed)
             raise ScrapeCancelled(msg)
+
+    def _collect_category_listings(
+        self,
+        client: TenderPortalClient,
+        cat: dict,
+        date_from: date,
+        date_to: date,
+        max_pages: int | None,
+        run_id: int,
+        found: int,
+        upserted: int,
+        errors: list[str],
+        skipped: int,
+        processed: int,
+    ) -> tuple[list[ListingRow], int]:
+        """Run dropdown + CPV-code searches and return unique listing rows.
+
+        The portal treats those as separate filters; combining them in one POST
+        returns an empty list, so each query is fully paged then merged.
+        """
+        groups: list[list[ListingRow]] = []
+        expected = 0
+        for index, query in enumerate(listing_searches(cat)):
+            self._stop_if_requested(run_id, found, upserted, errors, skipped, processed)
+            first_html = client.search(date_from=date_from, date_to=date_to, **query)
+            tag = cat["code"] if index == 0 else f"{cat['code']}:codes"
+            self.repo.save_raw_html(None, f"listing:{tag}:1", first_html)
+            page = parse_listing_page(first_html)
+            total_pages = page.total_pages or 1
+            if max_pages:
+                total_pages = min(total_pages, max_pages)
+            query_expected = page.total_records or 0
+            if max_pages and page.total_pages and max_pages < page.total_pages:
+                query_expected = min(query_expected, max_pages * max(len(page.rows), 1))
+            expected += query_expected
+            log.info(
+                "  %s %s: %s records across %s pages",
+                cat["code"],
+                "dropdown" if "cpv_category" in query else "cpv code",
+                page.total_records,
+                total_pages,
+            )
+            rows = list(page.rows)
+            for pnum in range(2, total_pages + 1):
+                self._stop_if_requested(run_id, found, upserted, errors, skipped, processed)
+                html = client.get_page(pnum)
+                self.repo.save_raw_html(None, f"listing:{tag}:{pnum}", html)
+                rows.extend(parse_listing_page(html).rows)
+            groups.append(rows)
+        merged = merge_listing_rows(*groups)
+        if len(groups) > 1:
+            log.info("  %s unique tenders after merging searches", len(merged))
+        return merged, expected
 
     def fetch_tender(self, client: TenderPortalClient, row: ListingRow, parts: frozenset[str]) -> TenderFetch:
         """Fetch and parse the requested tabs. Runs on a worker thread and touches no database."""
@@ -432,20 +515,19 @@ class ScrapePipeline:
                         progress_total=progress_total,
                     )
                     try:
-                        first_html = search_client.search(
-                            date_from=date_from,
-                            date_to=date_to,
-                            cpv_category=cat["id"],
+                        rows, expected = self._collect_category_listings(
+                            search_client,
+                            cat,
+                            date_from,
+                            date_to,
+                            max_pages,
+                            run_id,
+                            found,
+                            upserted,
+                            errors,
+                            skipped,
+                            processed,
                         )
-                        self.repo.save_raw_html(None, f"listing:{cat['code']}:1", first_html)
-                        page = parse_listing_page(first_html)
-                        total_pages = page.total_pages or 1
-                        if max_pages:
-                            total_pages = min(total_pages, max_pages)
-                        expected = page.total_records or 0
-                        if max_pages and page.total_pages and max_pages < page.total_pages:
-                            # Cap expected when page limit truncates the crawl
-                            expected = min(expected, max_pages * max(len(page.rows), 1))
                         progress_total += expected
                         progress.update(
                             force=True,
@@ -453,14 +535,6 @@ class ScrapePipeline:
                             current_category=cat["code"],
                             categories_done=cat_idx,
                         )
-                        log.info("  %s records across %s pages", page.total_records, total_pages)
-
-                        rows: list[ListingRow] = list(page.rows)
-                        for pnum in range(2, total_pages + 1):
-                            self._stop_if_requested(run_id, found, upserted, errors, skipped, processed)
-                            html = search_client.get_page(pnum)
-                            self.repo.save_raw_html(None, f"listing:{cat['code']}:{pnum}", html)
-                            rows.extend(parse_listing_page(html).rows)
 
                         # One lookup for the whole category, then decide per tender what to fetch.
                         states = self.repo.get_tender_states([r.app_id for r in rows])

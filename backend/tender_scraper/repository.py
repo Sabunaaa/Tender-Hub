@@ -720,11 +720,44 @@ class Repository:
             }
 
     def upsert_cpv_categories(self, categories: list[tuple[int, str, str]]) -> None:
+        """Replace the CPV list and move tracked rows onto the portal's current ids.
+
+        Portal option values are not stable across codes. Insert-or-replace by id
+        would violate ``code`` uniqueness when two rows swap, so the table is
+        rebuilt. Tracked categories keep their code and follow the new id.
+        """
+        by_code = {code: (cid, name) for cid, code, name in categories}
         with get_connection(self.db_path) as conn:
+            conn.execute("DELETE FROM cpv_categories")
             conn.executemany(
-                "INSERT OR REPLACE INTO cpv_categories (id, code, name) VALUES (?,?,?)",
+                "INSERT INTO cpv_categories (id, code, name) VALUES (?,?,?)",
                 categories,
             )
+            tracked = conn.execute(
+                "SELECT id, code, name, enabled, last_scraped_at FROM tracked_categories"
+            ).fetchall()
+            for row in tracked:
+                canon = by_code.get(row["code"])
+                if not canon:
+                    continue
+                new_id, new_name = canon
+                if new_id == row["id"] and new_name == row["name"]:
+                    continue
+                conn.execute(
+                    "UPDATE tracked_categories SET id = ?, name = ? WHERE id = ?",
+                    (-row["id"], new_name, row["id"]),
+                )
+            for row in tracked:
+                canon = by_code.get(row["code"])
+                if not canon:
+                    continue
+                new_id, new_name = canon
+                if new_id == row["id"] and new_name == row["name"]:
+                    continue
+                conn.execute(
+                    "UPDATE tracked_categories SET id = ?, name = ? WHERE id = ?",
+                    (new_id, new_name, -row["id"]),
+                )
 
     def all_cpv_categories(self) -> list[dict[str, Any]]:
         with get_connection(self.db_path) as conn:

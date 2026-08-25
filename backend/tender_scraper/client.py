@@ -202,11 +202,16 @@ class TenderPortalClient:
         status: str | int = 0,
         procurement_type: str | int = 0,
         cpv_category: str | int = 0,
+        cpv_code: str = "",
         buyer: str = "",
         amount_from: str | float = "",
         amount_to: str | float = "",
     ) -> str:
-        """Run a search and return the HTML of the first page of results."""
+        """Run a search and return the HTML of the first page of results.
+
+        Pass either ``cpv_category`` (dropdown id) or ``cpv_code`` (8-digit CPV),
+        not both: the portal returns no rows when the two filters are combined.
+        """
         self.start_session()
         payload = dict(_SEARCH_DEFAULTS)
         payload.update(
@@ -216,7 +221,8 @@ class TenderPortalClient:
                 "app_date_tlll": _fmt_date(date_to) if date_to else "",
                 "app_status": str(status),
                 "app_type": str(procurement_type),
-                "app_basecode": str(cpv_category),
+                "app_basecode": str(cpv_category or 0),
+                "app_codes": cpv_code or "",
                 "org_a": buyer,
                 "app_amount_from": str(amount_from),
                 "app_amount_to": str(amount_to),
