@@ -1,4 +1,4 @@
-from tender_scraper.listing import KIND_MRS, public_app_id, store_app_id
+from tender_scraper.listing import KIND_MRS, public_app_id, store_app_id, portal_source_url
 from tender_scraper.parsers import parse_mrs_listing_page, parse_mrs_main
 from tender_scraper.queries import get_stats, list_tenders
 from tender_scraper.repository import Repository
@@ -11,6 +11,8 @@ def _html(samples, name: str) -> str:
 def test_mrs_ids_do_not_collide_with_tender_ids():
     assert store_app_id(KIND_MRS, 72907) != 72907
     assert public_app_id(KIND_MRS, store_app_id(KIND_MRS, 72907)) == 72907
+    assert portal_source_url(KIND_MRS, 72907).endswith("?qep=72907&lang=en")
+    assert "go=" in portal_source_url("tender", 701304)
 
 
 def test_parse_mrs_listing(samples):
@@ -40,6 +42,9 @@ def test_parse_mrs_main(samples):
     assert any(c["code"] == "30216100" for c in tender.cpv_codes)
     assert tender.attachments
     assert any("ტექნიკური" in (a["name"] or "") for a in tender.attachments)
+    assert tender.source_url == "https://tenders.procurement.gov.ge/public/?qep=72907&lang=en"
+    assert tender.additional_info == "2026"
+    assert tender.estimated_value is None
 
 
 def test_tracked_lists_are_independent(tmp_repo: Repository):
@@ -78,6 +83,7 @@ def test_list_tenders_separates_mrs(tmp_repo: Repository):
     assert listed_mrs["items"][0]["announcementNumber"] == "MRS1"
     assert listed_mrs["items"][0]["appId"] == 1
     assert listed_mrs["items"][0]["kind"] == "mrs"
+    assert listed_mrs["items"][0]["sourceUrl"] == "https://tenders.procurement.gov.ge/public/?qep=1&lang=en"
 
 
 def test_stats_digest_includes_mrs(tmp_repo: Repository):

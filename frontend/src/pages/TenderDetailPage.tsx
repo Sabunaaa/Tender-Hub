@@ -47,6 +47,40 @@ export function TenderDetailPage() {
   if (isLoading) return <LoadingState label={kind === 'mrs' ? 'Loading market research…' : 'Loading tender…'} />
   if (error || !data) return <ErrorState message={errorMessage(error, kind === 'mrs' ? 'Market research not found' : 'Tender not found')} />
 
+  const isMrs = kind === 'mrs'
+  const coreFacts: { label: string; value: string }[] = isMrs
+    ? [
+        { label: 'Announcement number', value: data.announcementNumber },
+        { label: 'Buyer', value: data.buyer },
+        { label: 'Announced', value: formatDate(data.announcementDate) },
+        { label: 'Bids accepted from', value: formatDate(data.bidsAcceptedFrom) },
+        { label: 'Bid deadline', value: formatDate(data.bidDeadline) },
+        ...(data.estimatedValue != null
+          ? [{ label: 'Estimated value', value: formatGel(data.estimatedValue) }]
+          : []),
+        { label: 'Procurement type', value: data.procurementType || '—' },
+        ...(data.additionalInfo?.trim()
+          ? [{ label: 'Financial year', value: data.additionalInfo.trim() }]
+          : []),
+      ]
+    : [
+        { label: 'Announcement number', value: data.announcementNumber },
+        { label: 'Buyer', value: data.buyer },
+        { label: 'Announced', value: formatDate(data.announcementDate) },
+        { label: 'Bids accepted from', value: formatDate(data.bidsAcceptedFrom) },
+        { label: 'Bid deadline', value: formatDate(data.bidDeadline) },
+        { label: 'Estimated value', value: formatGel(data.estimatedValue) },
+        { label: 'Amount / volume', value: data.amountOrVolume?.trim() ? data.amountOrVolume : '—' },
+        { label: 'VAT terms', value: data.vatTerms ?? '—' },
+        { label: 'Guarantee', value: data.guaranteeAmount != null ? formatGel(data.guaranteeAmount) : '—' },
+        { label: 'Guarantee validity', value: data.guaranteeValidity ?? '—' },
+        { label: 'Bid reduction step', value: data.bidReductionStep != null ? formatGel(data.bidReductionStep) : '—' },
+        { label: 'Winner', value: data.winner ?? '—' },
+        { label: 'Procurement type', value: data.procurementType || '—' },
+        { label: 'Donor', value: data.donor?.trim() ? data.donor : 'N/A' },
+        { label: 'Bidders', value: String(data.bidderCount ?? 0) },
+      ]
+
   return (
     <div>
       <div className="section-toolbar tender-detail-header">
@@ -89,25 +123,7 @@ export function TenderDetailPage() {
       <div className="detail-grid-2 main">
         <Card title="Core fields">
           <dl className="fact-grid">
-            {(
-              [
-                ['Announcement number', data.announcementNumber],
-                ['Buyer', data.buyer],
-                ['Announced', formatDate(data.announcementDate)],
-                ['Bids accepted from', formatDate(data.bidsAcceptedFrom)],
-                ['Bid deadline', formatDate(data.bidDeadline)],
-                ['Estimated value', formatGel(data.estimatedValue)],
-                ['Amount / volume', data.amountOrVolume?.trim() ? data.amountOrVolume : '—'],
-                ['VAT terms', data.vatTerms ?? '—'],
-                ['Guarantee', data.guaranteeAmount != null ? formatGel(data.guaranteeAmount) : '—'],
-                ['Guarantee validity', data.guaranteeValidity ?? '—'],
-                ['Bid reduction step', data.bidReductionStep != null ? formatGel(data.bidReductionStep) : '—'],
-                ['Winner', data.winner ?? '—'],
-                ['Procurement type', data.procurementType || '—'],
-                ['Donor', data.donor?.trim() ? data.donor : 'N/A'],
-                ['Bidders', String(data.bidderCount ?? 0)],
-              ] as const
-            ).map(([label, value]) => (
+            {coreFacts.map(({ label, value }) => (
               <div key={label}>
                 <dt>{label}</dt>
                 <dd>{value}</dd>
@@ -158,25 +174,29 @@ export function TenderDetailPage() {
             )}
           </Card>
 
-          <Card title="Result documents">
-            {data.resultDocuments.length === 0 ? (
-              <div className="muted">No result documents yet.</div>
-            ) : (
-              <ul className="file-list">
-                {data.resultDocuments.map((a) => (
-                  <li key={a.id}>
-                    <a className="link-red" href={a.url} target="_blank" rel="noreferrer">
-                      {a.name}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
+          {!isMrs && (
+            <Card title="Result documents">
+              {data.resultDocuments.length === 0 ? (
+                <div className="muted">No result documents yet.</div>
+              ) : (
+                <ul className="file-list">
+                  {data.resultDocuments.map((a) => (
+                    <li key={a.id}>
+                      <a className="link-red" href={a.url} target="_blank" rel="noreferrer">
+                        {a.name}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          )}
         </div>
       </div>
 
+      {(!isMrs || specText) && (
       <div className="detail-grid-2 equal">
+        {!isMrs && (
         <Card title="Documentation">
           {data.documentSections.length === 0 && (
             <div className="muted">No document sections.</div>
@@ -208,7 +228,9 @@ export function TenderDetailPage() {
             </div>
           ))}
         </Card>
+        )}
 
+        {(!isMrs || specText) && (
         <Card
           title="Technical specification"
           eyebrow="Extracted from ტექნიკური file"
@@ -224,8 +246,11 @@ export function TenderDetailPage() {
             )}
           </div>
         </Card>
+        )}
       </div>
+      )}
 
+      {!isMrs && (
       <div className="detail-grid-2 equal">
         <Card title="Bids">
           {data.bids.length === 0 ? (
@@ -279,6 +304,7 @@ export function TenderDetailPage() {
           </ol>
         </Card>
       </div>
+      )}
     </div>
   )
 }

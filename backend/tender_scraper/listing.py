@@ -10,6 +10,7 @@ from __future__ import annotations
 KIND_TENDER = "tender"
 KIND_MRS = "mrs"
 MRS_APP_ID_OFFSET = 1_000_000_000
+PORTAL_PUBLIC_URL = "https://tenders.procurement.gov.ge/public/"
 
 
 def normalize_kind(value: object | None) -> str:
@@ -28,3 +29,11 @@ def public_app_id(kind: str, stored_id: int) -> int:
     if normalize_kind(kind) == KIND_MRS and stored >= MRS_APP_ID_OFFSET:
         return stored - MRS_APP_ID_OFFSET
     return stored
+
+
+def portal_source_url(kind: str, portal_id: int) -> str:
+    """Public SPA page that opens this notice (``?go=`` tenders, ``?qep=`` MRS)."""
+    app_id = int(portal_id)
+    if normalize_kind(kind) == KIND_MRS:
+        return f"{PORTAL_PUBLIC_URL}?qep={app_id}&lang=en"
+    return f"{PORTAL_PUBLIC_URL}?go={app_id}&lang=en"

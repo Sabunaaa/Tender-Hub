@@ -7,7 +7,7 @@ from typing import Any
 
 from .db import get_connection
 from .keywords import keyword_clause
-from .listing import KIND_MRS, KIND_TENDER, normalize_kind, public_app_id, store_app_id
+from .listing import KIND_MRS, KIND_TENDER, normalize_kind, portal_source_url, public_app_id, store_app_id
 from .repository import Repository
 from .settings import TBILISI, load_settings
 
@@ -23,8 +23,11 @@ OPEN_STATUSES = (
 def _row_to_summary(r) -> dict[str, Any]:
     kind = normalize_kind(r["kind"] if "kind" in r.keys() else KIND_TENDER)
     stored_id = r["app_id"]
+    app_id = public_app_id(kind, stored_id)
+    stored_url = (r["source_url"] or "").strip()
+    source_url = portal_source_url(kind, app_id) if kind == KIND_MRS or not stored_url else stored_url
     return {
-        "appId": public_app_id(kind, stored_id),
+        "appId": app_id,
         "kind": kind,
         "key": r["key"],
         "announcementNumber": r["announcement_number"],
@@ -44,7 +47,7 @@ def _row_to_summary(r) -> dict[str, Any]:
         "bidderCount": r["bidder_count"] or 0,
         "winner": r["winner"],
         "contractStatus": r["contract_status"],
-        "sourceUrl": r["source_url"] or "",
+        "sourceUrl": source_url,
         "hasSpecText": bool((r["spec_text"] or "").strip()) if "spec_text" in r.keys() else False,
     }
 

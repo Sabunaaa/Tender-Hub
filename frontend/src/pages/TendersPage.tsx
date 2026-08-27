@@ -69,6 +69,8 @@ const TABLE_COLUMNS = [
 
 type ColumnId = (typeof TABLE_COLUMNS)[number]['id']
 
+const MRS_OMIT_COLUMNS = new Set<ColumnId>(['value', 'donor', 'spec'])
+
 const DEFAULT_COLUMNS: Record<ColumnId, boolean> = {
   number: true,
   buyer: true,
@@ -98,6 +100,9 @@ export function TendersPage({ kind = 'tender' }: { kind?: 'tender' | 'mrs' }) {
   const basePath = isMrs ? '/market-research' : '/tenders'
   const columnStorageKey = isMrs ? MRS_COLUMN_STORAGE_KEY : COLUMN_STORAGE_KEY
   const filterStorageKey = isMrs ? MRS_FILTER_OPEN_KEY : FILTER_OPEN_KEY
+  const explorerColumns = isMrs
+    ? TABLE_COLUMNS.filter((col) => !MRS_OMIT_COLUMNS.has(col.id))
+    : TABLE_COLUMNS
   const [params, setParams] = useSearchParams()
   const settingsQuery = useQuery({ queryKey: ['settings'], queryFn: () => api.getSettings() })
   const filters = useMemo(
@@ -110,6 +115,7 @@ export function TendersPage({ kind = 'tender' }: { kind?: 'tender' | 'mrs' }) {
   const [filterOpen, setFilterOpen] = useState<Record<FilterSectionId, boolean>>(() =>
     loadFilterOpen(filterStorageKey),
   )
+  const columnOn = (id: ColumnId) => (isMrs && MRS_OMIT_COLUMNS.has(id) ? false : visibleColumns[id])
 
   useEffect(() => {
     localStorage.setItem(columnStorageKey, JSON.stringify(visibleColumns))
@@ -446,6 +452,8 @@ export function TendersPage({ kind = 'tender' }: { kind?: 'tender' | 'mrs' }) {
                 </div>
               </FilterSection>
 
+              {!isMrs && (
+                <>
               <FilterSection title="Value" open={filterOpen.value} onToggle={() => toggleFilterSection('value')}>
                 <div className="two-col">
                   <label>
@@ -491,6 +499,8 @@ export function TendersPage({ kind = 'tender' }: { kind?: 'tender' | 'mrs' }) {
                   </label>
                 </div>
               </FilterSection>
+                </>
+              )}
 
               <FilterSection
                 title="Visible columns"
@@ -498,7 +508,7 @@ export function TendersPage({ kind = 'tender' }: { kind?: 'tender' | 'mrs' }) {
                 onToggle={() => toggleFilterSection('columns')}
               >
                 <div className="check-list" style={{ maxHeight: 'none' }}>
-                  {TABLE_COLUMNS.map((col) => (
+                  {explorerColumns.map((col) => (
                     <label key={col.id} className="check-row">
                       <input
                         type="checkbox"
@@ -538,32 +548,36 @@ export function TendersPage({ kind = 'tender' }: { kind?: 'tender' | 'mrs' }) {
                 >
                   Within deadline
                 </button>
-                <button
-                  type="button"
-                  className={`chip-button${hasSpecActive ? ' active' : ''}`}
-                  aria-pressed={hasSpecActive}
-                  onClick={toggleHasSpec}
-                  title="Only tenders whose ტექნიკური attachment was parsed"
-                >
-                  Has spec text
-                </button>
-                {(
-                  [
-                    { id: 'under100k' as const, label: '< ₾100K' },
-                    { id: 'over100k' as const, label: '> ₾100K' },
-                    { id: 'over200k' as const, label: '> ₾200K' },
-                  ] as const
-                ).map((chip) => (
-                  <button
-                    key={chip.id}
-                    type="button"
-                    className={`chip-button${valueQuickFilter === chip.id ? ' active' : ''}`}
-                    aria-pressed={valueQuickFilter === chip.id}
-                    onClick={() => applyValueQuickFilter(chip.id)}
-                  >
-                    {chip.label}
-                  </button>
-                ))}
+                {!isMrs && (
+                  <>
+                    <button
+                      type="button"
+                      className={`chip-button${hasSpecActive ? ' active' : ''}`}
+                      aria-pressed={hasSpecActive}
+                      onClick={toggleHasSpec}
+                      title="Only tenders whose ტექნიკური attachment was parsed"
+                    >
+                      Has spec text
+                    </button>
+                    {(
+                      [
+                        { id: 'under100k' as const, label: '< ₾100K' },
+                        { id: 'over100k' as const, label: '> ₾100K' },
+                        { id: 'over200k' as const, label: '> ₾200K' },
+                      ] as const
+                    ).map((chip) => (
+                      <button
+                        key={chip.id}
+                        type="button"
+                        className={`chip-button${valueQuickFilter === chip.id ? ' active' : ''}`}
+                        aria-pressed={valueQuickFilter === chip.id}
+                        onClick={() => applyValueQuickFilter(chip.id)}
+                      >
+                        {chip.label}
+                      </button>
+                    ))}
+                  </>
+                )}
                 <select
                   className="sort-select"
                   value={filters.sortBy}
@@ -571,7 +585,7 @@ export function TendersPage({ kind = 'tender' }: { kind?: 'tender' | 'mrs' }) {
                 >
                   <option value="announcementDate">Announcement date</option>
                   <option value="bidDeadline">Bid deadline</option>
-                  <option value="estimatedValue">Estimated value</option>
+                  {!isMrs && <option value="estimatedValue">Estimated value</option>}
                   <option value="status">Status</option>
                   <option value="buyer">Buyer</option>
                 </select>
@@ -595,22 +609,22 @@ export function TendersPage({ kind = 'tender' }: { kind?: 'tender' | 'mrs' }) {
                 <table>
                   <thead>
                     <tr>
-                      {visibleColumns.number && <th>Number</th>}
-                      {visibleColumns.buyer && <th>Buyer</th>}
-                      {visibleColumns.category && <th>Category</th>}
-                      {visibleColumns.announced && <th>Announced</th>}
-                      {visibleColumns.deadline && <th>Deadline</th>}
-                      {visibleColumns.value && <th>Value</th>}
-                      {visibleColumns.procurementType && <th>Procurement type</th>}
-                      {visibleColumns.donor && <th>Donor</th>}
-                      {visibleColumns.spec && <th>Spec text</th>}
-                      {visibleColumns.status && <th>Status</th>}
+                      {columnOn('number') && <th>Number</th>}
+                      {columnOn('buyer') && <th>Buyer</th>}
+                      {columnOn('category') && <th>Category</th>}
+                      {columnOn('announced') && <th>Announced</th>}
+                      {columnOn('deadline') && <th>Deadline</th>}
+                      {columnOn('value') && <th>Value</th>}
+                      {columnOn('procurementType') && <th>Procurement type</th>}
+                      {columnOn('donor') && <th>Donor</th>}
+                      {columnOn('spec') && <th>Spec text</th>}
+                      {columnOn('status') && <th>Status</th>}
                     </tr>
                   </thead>
                   <tbody>
                     {tendersQuery.data.items.map((t) => (
                       <tr key={t.appId}>
-                        {visibleColumns.number && (
+                        {columnOn('number') && (
                           <td>
                             <Link to={`${basePath}/${t.appId}`}>{t.announcementNumber}</Link>
                             <div className="georgian cell-truncate muted" title={t.title}>
@@ -618,28 +632,28 @@ export function TendersPage({ kind = 'tender' }: { kind?: 'tender' | 'mrs' }) {
                             </div>
                           </td>
                         )}
-                        {visibleColumns.buyer && (
+                        {columnOn('buyer') && (
                           <td title={t.buyer}>
                             <div className="cell-truncate">{t.buyer}</div>
                           </td>
                         )}
-                        {visibleColumns.category && <td>{shortCategory(t.categoryName)}</td>}
-                        {visibleColumns.announced && (
+                        {columnOn('category') && <td>{shortCategory(t.categoryName)}</td>}
+                        {columnOn('announced') && (
                           <td style={{ whiteSpace: 'nowrap' }}>{formatDate(t.announcementDate)}</td>
                         )}
-                        {visibleColumns.deadline && (
+                        {columnOn('deadline') && (
                           <td style={{ whiteSpace: 'nowrap' }}>{formatDate(t.bidDeadline)}</td>
                         )}
-                        {visibleColumns.value && (
+                        {columnOn('value') && (
                           <td style={{ whiteSpace: 'nowrap' }}>{formatGel(t.estimatedValue)}</td>
                         )}
-                        {visibleColumns.procurementType && (
+                        {columnOn('procurementType') && (
                           <td title={t.procurementType || undefined}>
                             {shortProcurementType(t.procurementType)}
                           </td>
                         )}
-                        {visibleColumns.donor && <td>{t.donor?.trim() ? t.donor : 'N/A'}</td>}
-                        {visibleColumns.spec && (
+                        {columnOn('donor') && <td>{t.donor?.trim() ? t.donor : 'N/A'}</td>}
+                        {columnOn('spec') && (
                           <td>
                             {t.hasSpecText ? (
                               <Link
@@ -654,7 +668,7 @@ export function TendersPage({ kind = 'tender' }: { kind?: 'tender' | 'mrs' }) {
                             )}
                           </td>
                         )}
-                        {visibleColumns.status && (
+                        {columnOn('status') && (
                           <td>
                             <StatusBadge status={t.status} />
                           </td>

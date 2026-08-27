@@ -8,6 +8,8 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
+from .listing import KIND_MRS, portal_source_url
+
 SHOW_APP_RE = re.compile(r"ShowApp\((\d+),'([^']*)',(\d+),'([^']+)'\)")
 SHOW_QEP_RE = re.compile(r"ShowQep\((\d+)\)")
 RECORD_COUNT_RE = re.compile(r"(\d+)&nbsp;Record\(s\)&nbsp;\(page:\s*(\d+)/(\d+)\)")
@@ -358,7 +360,7 @@ def parse_main_tab(html: str, app_id: int, key: str) -> ParsedTender:
         if um:
             tender.source_url = um.group(0).rstrip(".")
     else:
-        tender.source_url = f"https://tenders.procurement.gov.ge/public/?go={app_id}&lang=en"
+        tender.source_url = portal_source_url("tender", app_id)
     return tender
 
 
@@ -398,9 +400,11 @@ def parse_mrs_main(html: str, app_id: int) -> ParsedTender:
     tender.bids_accepted_from = _dmy_to_iso(fields.get("Bids accepted from"))
     tender.bid_deadline = _dmy_to_iso(fields.get("Deadline for bid submission"))
     amount, currency = _parse_amount(fields.get("შესყიდვის ღირებულება") or fields.get("Estimated value of procurement", ""))
-    tender.estimated_value = amount
+    tender.estimated_value = None if amount is None or amount == 0 else amount
     tender.currency = currency or "GEL"
     tender.supply_period = fields.get("მოწოდების ვადა") or fields.get("Supply Period") or None
+    year = (fields.get("საფინანსო წელი") or fields.get("Financial year") or "").strip()
+    tender.additional_info = year or None
     description = (fields.get("შესყიდვის ობიექტის აღწერა") or "").strip()
     if description:
         tender.description = description
@@ -426,7 +430,7 @@ def parse_mrs_main(html: str, app_id: int) -> ParsedTender:
             href = "https://tenders.procurement.gov.ge/public/" + href.lstrip("/")
         attachments.append({"name": _text(a) or href, "url": href})
     tender.attachments = attachments
-    tender.source_url = "https://tenders.procurement.gov.ge/public/?lang=en"
+    tender.source_url = portal_source_url(KIND_MRS, app_id)
     return tender
 
 

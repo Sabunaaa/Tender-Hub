@@ -1,4 +1,4 @@
-export const APP_VERSION = '1.0.3'
+export const APP_VERSION = '1.0.4'
 
 export interface ReleaseNotes {
   version: string
@@ -7,6 +7,18 @@ export interface ReleaseNotes {
 }
 
 export const CHANGELOG: ReleaseNotes[] = [
+  {
+    version: '1.0.4',
+    title: 'Market research',
+    items: [
+      'Market research sits between Tenders and Engagement and lists MRS notices with the same explorer as Tenders.',
+      'Dashboard digest can switch Tenders | MRS on last scrape / today / this week.',
+      'Settings → Categories keeps two CPV lists: Tenders and Market research, each starting with computers, networks, and telecom.',
+      'The scheduled daily scrape runs tenders first, then MRS, using each list’s own CPVs.',
+      'Engagement includes MRS with a Kind column; Move to engagement works from an MRS detail page.',
+      'Open on portal from an MRS notice opens that market-research record on the SPA site, not the homepage.',
+    ],
+  },
   {
     version: '1.0.3',
     title: 'Market research (MRS)',

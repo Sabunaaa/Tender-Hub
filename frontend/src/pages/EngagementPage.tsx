@@ -539,7 +539,9 @@ export function EngagementPage() {
                     <td className="type-col" title={row.procurementType || undefined}>
                       {formatProcurementType(row.procurementType)}
                     </td>
-                    <td className="nowrap-col">{row.donor?.trim() ? row.donor : 'N/A'}</td>
+                    <td className="nowrap-col">
+                      {row.kind === 'mrs' ? '—' : row.donor?.trim() ? row.donor : 'N/A'}
+                    </td>
                     <td className="announce-col">
                       {row.appId ? (
                         <Link to={row.kind === 'mrs' ? `/market-research/${row.appId}` : `/tenders/${row.appId}`}>
