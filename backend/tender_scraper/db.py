@@ -13,16 +13,19 @@ SCHEMA = """
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS tracked_categories (
-    id INTEGER PRIMARY KEY,
-    code TEXT NOT NULL UNIQUE,
+    id INTEGER NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'tender',
+    code TEXT NOT NULL,
     name TEXT NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 1,
     last_scraped_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (id, kind)
 );
 
 CREATE TABLE IF NOT EXISTS tenders (
     app_id INTEGER PRIMARY KEY,
+    kind TEXT NOT NULL DEFAULT 'tender',
     key TEXT NOT NULL,
     announcement_number TEXT NOT NULL,
     title TEXT,
@@ -189,16 +192,59 @@ def get_connection(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
-    cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
-    if column not in cols:
+    if column not in _table_columns(conn, table):
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+
+
+def _migrate_tracked_kind(conn: sqlite3.Connection) -> None:
+    """Split tracked CPV lists into independent tender and MRS sets.
+
+    Older databases used ``id`` as the only primary key. The same CPV dropdown
+    id is valid in both portal searches, so the key is now ``(id, kind)``.
+    """
+    cols = _table_columns(conn, "tracked_categories")
+    if "kind" not in cols:
+        conn.execute(
+            """
+            CREATE TABLE tracked_categories_v2 (
+                id INTEGER NOT NULL,
+                kind TEXT NOT NULL DEFAULT 'tender',
+                code TEXT NOT NULL,
+                name TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                last_scraped_at TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (id, kind)
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO tracked_categories_v2 (id, kind, code, name, enabled, last_scraped_at, created_at)
+            SELECT id, 'tender', code, name, enabled, last_scraped_at, created_at
+            FROM tracked_categories
+            """
+        )
+        conn.execute("DROP TABLE tracked_categories")
+        conn.execute("ALTER TABLE tracked_categories_v2 RENAME TO tracked_categories")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_tracked_kind_code ON tracked_categories(kind, code)"
+    )
 
 
 def init_db(db_path: Path | None = None) -> None:
     config.ensure_dirs()
     with get_connection(db_path) as conn:
         conn.executescript(SCHEMA)
+        _migrate_tracked_kind(conn)
+        _ensure_column(conn, "tenders", "kind", "kind TEXT NOT NULL DEFAULT 'tender'")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_tenders_kind ON tenders(kind)")
+        _ensure_column(conn, "scrape_runs", "listing_kind", "listing_kind TEXT")
         _ensure_column(conn, "scrape_runs", "progress_total", "progress_total INTEGER DEFAULT 0")
         _ensure_column(conn, "scrape_runs", "categories_done", "categories_done INTEGER DEFAULT 0")
         _ensure_column(conn, "scrape_runs", "categories_total", "categories_total INTEGER DEFAULT 0")
@@ -214,13 +260,14 @@ def init_db(db_path: Path | None = None) -> None:
         _ensure_column(conn, "engagements", "domain", "domain TEXT")
         _ensure_column(conn, "engagements", "info", "info TEXT")
         for cat_id, code, name in DEFAULT_TRACKED:
-            conn.execute(
-                """
-                INSERT OR IGNORE INTO tracked_categories (id, code, name, enabled)
-                VALUES (?, ?, ?, 1)
-                """,
-                (cat_id, code, name),
-            )
+            for kind in ("tender", "mrs"):
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO tracked_categories (id, kind, code, name, enabled)
+                    VALUES (?, ?, ?, ?, 1)
+                    """,
+                    (cat_id, kind, code, name),
+                )
             conn.execute(
                 "INSERT OR IGNORE INTO cpv_categories (id, code, name) VALUES (?, ?, ?)",
                 (cat_id, code, name),

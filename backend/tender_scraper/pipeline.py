@@ -27,6 +27,7 @@ from . import config
 from .cancel import clear_stop, should_stop
 from .settings import apply_to_config
 from .client import RateLimiter, TenderPortalClient
+from .listing import KIND_MRS, KIND_TENDER, normalize_kind, store_app_id
 from .parsers import (
     ListingRow,
     ParsedTender,
@@ -35,6 +36,8 @@ from .parsers import (
     parse_docs_tab,
     parse_listing_page,
     parse_main_tab,
+    parse_mrs_listing_page,
+    parse_mrs_main,
     parse_status_history,
 )
 from .repository import ALL_TENDER_PARTS, Repository
@@ -159,6 +162,16 @@ def _parts_for(row: ListingRow, state: dict | None, force: bool) -> frozenset[st
     return frozenset(parts)
 
 
+def _parts_for_mrs(row: ListingRow, state: dict | None, force: bool) -> frozenset[str] | None:
+    is_new = state is None
+    if not is_new and not force and not _listing_changed(row, state or {}):
+        return None
+    parts = {"main"}
+    if is_new or force or not (state or {}).get("hasDocs"):
+        parts.add("docs")
+    return frozenset(parts)
+
+
 class ScrapePipeline:
     def __init__(self, repo: Repository | None = None, delay: float | None = None):
         self.repo = repo or Repository()
@@ -194,30 +207,41 @@ class ScrapePipeline:
         errors: list[str],
         skipped: int,
         processed: int,
+        listing_kind: str = KIND_TENDER,
     ) -> tuple[list[ListingRow], int]:
-        """Page the portal's procuring-category dropdown (``app_basecode``).
+        """Page the portal's procuring-category dropdown (``app_basecode`` / ``qep_basecode``).
 
         That is the same filter as the public search page. The CPV-code field
         is a different query and must not be unioned in: for 48800000 it added
         42 extra tenders on top of the dropdown's 77.
         """
         self._stop_if_requested(run_id, found, upserted, errors, skipped, processed)
-        first_html = client.search(date_from=date_from, date_to=date_to, cpv_category=cat["id"])
-        self.repo.save_raw_html(None, f"listing:{cat['code']}:1", first_html)
-        page = parse_listing_page(first_html)
+        kind = normalize_kind(listing_kind)
+        if kind == KIND_MRS:
+            first_html = client.search_mrs(date_from=date_from, date_to=date_to, cpv_category=cat["id"])
+            parse_page = parse_mrs_listing_page
+            fetch_page = client.get_mrs_page
+            listing_prefix = f"mrs-listing:{cat['code']}"
+        else:
+            first_html = client.search(date_from=date_from, date_to=date_to, cpv_category=cat["id"])
+            parse_page = parse_listing_page
+            fetch_page = client.get_page
+            listing_prefix = f"listing:{cat['code']}"
+        self.repo.save_raw_html(None, f"{listing_prefix}:1", first_html)
+        page = parse_page(first_html)
         total_pages = page.total_pages or 1
         if max_pages:
             total_pages = min(total_pages, max_pages)
         expected = page.total_records or 0
         if max_pages and page.total_pages and max_pages < page.total_pages:
             expected = min(expected, max_pages * max(len(page.rows), 1))
-        log.info("  %s: %s records across %s pages", cat["code"], page.total_records, total_pages)
+        log.info("  %s %s: %s records across %s pages", kind, cat["code"], page.total_records, total_pages)
         rows = list(page.rows)
         for pnum in range(2, total_pages + 1):
             self._stop_if_requested(run_id, found, upserted, errors, skipped, processed)
-            html = client.get_page(pnum)
-            self.repo.save_raw_html(None, f"listing:{cat['code']}:{pnum}", html)
-            rows.extend(parse_listing_page(html).rows)
+            html = fetch_page(pnum)
+            self.repo.save_raw_html(None, f"{listing_prefix}:{pnum}", html)
+            rows.extend(parse_page(html).rows)
         return rows, expected
 
     def fetch_tender(self, client: TenderPortalClient, row: ListingRow, parts: frozenset[str]) -> TenderFetch:
@@ -301,7 +325,44 @@ class ScrapePipeline:
         result.tender = tender
         return result
 
-    def _persist(self, fetch: TenderFetch, state: dict | None, category_code: str, category_name: str) -> bool:
+    def fetch_mrs(self, client: TenderPortalClient, row: ListingRow, parts: frozenset[str]) -> TenderFetch:
+        """Fetch the QEP detail pane. Attachments live on the same page as the fields."""
+        client.start_session()
+        result = TenderFetch(row=row, parts=parts)
+        main_html = client.get_mrs_main(row.app_id)
+        result.raw.append(("qep_main", main_html))
+        tender = parse_mrs_main(main_html, row.app_id)
+
+        if not tender.announcement_number:
+            tender.announcement_number = row.announcement_number
+        if not tender.status:
+            tender.status = row.status
+        if not tender.buyer:
+            tender.buyer = row.buyer
+        if not tender.estimated_value:
+            tender.estimated_value = row.estimated_value
+        if not tender.bid_deadline:
+            tender.bid_deadline = row.bid_deadline
+        if not tender.announcement_date:
+            tender.announcement_date = row.announcement_date
+        if not tender.procurement_type:
+            tender.procurement_type = row.procurement_type
+        if not tender.category_code:
+            tender.category_code = row.category_code
+            tender.category_name = row.category_name
+        tender.kind = KIND_MRS
+
+        if "docs" in parts:
+            try:
+                tender.spec_text = extract_spec_text(client, tender.attachments)
+            except Exception as exc:
+                log.warning("spec extract failed for MRS %s: %s", row.app_id, exc)
+                tender.spec_text = ""
+
+        result.tender = tender
+        return result
+
+    def _persist(self, fetch: TenderFetch, state: dict | None, category_code: str, category_name: str, listing_kind: str = KIND_TENDER) -> bool:
         """Write one fetched tender. Runs on the main thread so SQLite stays single-writer."""
         tender = fetch.tender
         assert tender is not None
@@ -310,12 +371,13 @@ class ScrapePipeline:
             tender.title = state.get("title") or tender.title
             tender.description = state.get("description") or tender.description
         for kind, html in fetch.raw:
-            self.repo.save_raw_html(tender.app_id, kind, html)
+            self.repo.save_raw_html(store_app_id(listing_kind, tender.app_id), kind, html)
         return self.repo.upsert_tender(
             tender,
             category_code=category_code,
             category_name=category_name,
             replace=fetch.parts & ALL_TENDER_PARTS,
+            listing_kind=listing_kind,
         )
 
     def _fill_missing_specs(
@@ -416,29 +478,38 @@ class ScrapePipeline:
         max_pages: int | None = None,
         run_id: int | None = None,
         force_refresh: bool = False,
+        listing_kind: str | None = None,
     ) -> dict:
         date_to = date_to or date.today()
         apply_to_config()
-        tracked = self.repo.list_tracked(enabled_only=True)
-        if category_ids:
-            tracked = [c for c in tracked if c["id"] in category_ids]
-        if not tracked:
+        kinds = [normalize_kind(listing_kind)] if listing_kind else [KIND_TENDER, KIND_MRS]
+        jobs: list[tuple[str, dict]] = []
+        for kind in kinds:
+            cats = self.repo.list_tracked(enabled_only=True, kind=kind)
+            if category_ids:
+                cats = [c for c in cats if c["id"] in category_ids]
+            for cat in cats:
+                jobs.append((kind, cat))
+        if not jobs:
             raise RuntimeError("No tracked categories enabled")
 
-        categories = [c["code"] for c in tracked]
+        categories = [
+            f"MRS:{cat['code']}" if kind == KIND_MRS else cat["code"] for kind, cat in jobs
+        ]
         if run_id is None:
             run_id = self.repo.start_run(
                 mode,
                 categories,
-                categories_total=len(tracked),
+                categories_total=len(jobs),
                 date_from=date_from.isoformat(),
                 date_to=date_to.isoformat(),
                 category_ids=category_ids,
+                listing_kind=normalize_kind(listing_kind) if listing_kind else None,
             )
         else:
             self.repo.update_run_progress(
                 run_id,
-                categories_total=len(tracked),
+                categories_total=len(jobs),
                 current_category=categories[0] if categories else None,
             )
         found = 0
@@ -456,14 +527,15 @@ class ScrapePipeline:
 
         try:
             with search_client:
-                for cat_idx, cat in enumerate(tracked):
+                for cat_idx, (kind, cat) in enumerate(jobs):
                     self._stop_if_requested(run_id, found, upserted, errors, skipped, processed)
-                    log.info("Scraping category %s (%s) %s → %s", cat["code"], cat["name"], date_from, date_to)
+                    label = f"MRS {cat['code']}" if kind == KIND_MRS else cat["code"]
+                    log.info("Scraping %s (%s) %s → %s", label, cat["name"], date_from, date_to)
                     progress.update(
                         force=True,
-                        current_category=cat["code"],
+                        current_category=label,
                         categories_done=cat_idx,
-                        categories_total=len(tracked),
+                        categories_total=len(jobs),
                         found=found,
                         upserted=upserted,
                         skipped=skipped,
@@ -483,13 +555,15 @@ class ScrapePipeline:
                             errors,
                             skipped,
                             processed,
+                            listing_kind=kind,
                         )
-                        if not max_pages:
+                        if not max_pages and kind == KIND_TENDER:
                             dropped = self.repo.release_outside_listing(
                                 cat["code"],
                                 {r.app_id for r in rows},
                                 date_from.isoformat(),
                                 date_to.isoformat(),
+                                listing_kind=kind,
                             )
                             if dropped:
                                 log.info(
@@ -501,25 +575,37 @@ class ScrapePipeline:
                         progress.update(
                             force=True,
                             progress_total=progress_total,
-                            current_category=cat["code"],
+                            current_category=label,
                             categories_done=cat_idx,
                         )
 
                         # One lookup for the whole category, then decide per tender what to fetch.
-                        states = self.repo.get_tender_states([r.app_id for r in rows])
+                        stored_ids = [store_app_id(kind, r.app_id) for r in rows]
+                        states = self.repo.get_tender_states(stored_ids)
                         work: list[tuple[ListingRow, frozenset[str]]] = []
                         for row in rows:
                             found += 1
-                            parts = _parts_for(row, states.get(row.app_id), force_refresh)
+                            state = states.get(store_app_id(kind, row.app_id))
+                            parts = (
+                                _parts_for_mrs(row, state, force_refresh)
+                                if kind == KIND_MRS
+                                else _parts_for(row, state, force_refresh)
+                            )
                             if parts is None:
                                 skipped += 1
                                 processed += 1
-                                self.repo.claim_for_tracked_category(row.app_id, cat["code"], cat["name"])
+                                self.repo.claim_for_tracked_category(
+                                    store_app_id(kind, row.app_id),
+                                    cat["code"],
+                                    cat["name"],
+                                    listing_kind=kind,
+                                )
                                 continue
                             work.append((row, parts))
 
                         log.info(
-                            "  %s tenders: %s to fetch, %s unchanged",
+                            "  %s %s: %s to fetch, %s unchanged",
+                            kind,
                             len(rows),
                             len(work),
                             len(rows) - len(work),
@@ -531,19 +617,25 @@ class ScrapePipeline:
                             skipped=skipped,
                             processed=processed,
                             progress_total=progress_total,
-                            current_category=cat["code"],
+                            current_category=label,
                             categories_done=cat_idx,
-                            categories_total=len(tracked),
+                            categories_total=len(jobs),
                         )
 
                         counters = lambda: (found, upserted, skipped, processed, errors)  # noqa: E731
-                        for fetch in self._fetch_all(pool, work, run_id, counters):
+                        for fetch in self._fetch_all(pool, work, run_id, counters, listing_kind=kind):
                             processed += 1
                             if fetch.error:
                                 errors.append(fetch.error)
                             else:
                                 try:
-                                    self._persist(fetch, states.get(fetch.row.app_id), cat["code"], cat["name"])
+                                    self._persist(
+                                        fetch,
+                                        states.get(store_app_id(kind, fetch.row.app_id)),
+                                        cat["code"],
+                                        cat["name"],
+                                        listing_kind=kind,
+                                    )
                                     upserted += 1
                                     log.info("  OK %s %s", fetch.row.announcement_number or fetch.row.app_id, fetch.row.status)
                                 except Exception as exc:
@@ -556,18 +648,18 @@ class ScrapePipeline:
                                 skipped=skipped,
                                 processed=processed,
                                 progress_total=progress_total,
-                                current_category=cat["code"],
+                                current_category=label,
                                 categories_done=cat_idx,
-                                categories_total=len(tracked),
+                                categories_total=len(jobs),
                             )
 
-                        self._fill_missing_specs(pool, [r.app_id for r in rows], run_id, counters)
+                        self._fill_missing_specs(pool, stored_ids, run_id, counters)
 
-                        self.repo.mark_scraped(cat["id"])
+                        self.repo.mark_scraped(cat["id"], kind=kind)
                         progress.update(
                             force=True,
                             categories_done=cat_idx + 1,
-                            categories_total=len(tracked),
+                            categories_total=len(jobs),
                             found=found,
                             upserted=upserted,
                             skipped=skipped,
@@ -577,13 +669,13 @@ class ScrapePipeline:
                     except ScrapeCancelled:
                         raise
                     except Exception as exc:
-                        msg = f"Category {cat['code']} failed: {exc}"
+                        msg = f"Category {label} failed: {exc}"
                         log.exception(msg)
                         errors.append(msg)
                         progress.update(
                             force=True,
                             categories_done=cat_idx + 1,
-                            categories_total=len(tracked),
+                            categories_total=len(jobs),
                         )
 
             status = "success" if not errors else ("partial" if upserted else "failed")
@@ -621,6 +713,7 @@ class ScrapePipeline:
         work: list[tuple[ListingRow, frozenset[str]]],
         run_id: int,
         counters,
+        listing_kind: str = KIND_TENDER,
     ) -> Iterator[TenderFetch]:
         """Fetch detail tabs across the pool, yielding results as they land.
 
@@ -637,6 +730,8 @@ class ScrapePipeline:
                 return TenderFetch(row=row, parts=parts, error=None)
             with pool.lease() as client:
                 try:
+                    if listing_kind == KIND_MRS:
+                        return self.fetch_mrs(client, row, parts)
                     return self.fetch_tender(client, row, parts)
                 except Exception as exc:
                     log.exception("Failed app_id=%s", row.app_id)
@@ -682,6 +777,7 @@ def run_backfill(
     run_id: int | None = None,
     max_pages: int | None = None,
     force_refresh: bool = False,
+    listing_kind: str | None = None,
 ) -> dict:
     today = date_to or date.today()
     if date_from is None:
@@ -697,4 +793,5 @@ def run_backfill(
         max_pages=max_pages,
         run_id=run_id,
         force_refresh=force_refresh,
+        listing_kind=listing_kind,
     )

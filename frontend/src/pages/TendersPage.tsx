@@ -10,6 +10,8 @@ import { DEVICE_KEYWORDS, activeDatePreset, filtersFromParams, parseList } from 
 
 const COLUMN_STORAGE_KEY = 'tender-hub.visible-columns'
 const FILTER_OPEN_KEY = 'tender-hub.filter-open'
+const MRS_COLUMN_STORAGE_KEY = 'tender-hub.mrs.visible-columns'
+const MRS_FILTER_OPEN_KEY = 'tender-hub.mrs.filter-open'
 
 const FILTER_SECTIONS = [
   'search',
@@ -41,9 +43,9 @@ const DEFAULT_FILTER_OPEN: Record<FilterSectionId, boolean> = {
   columns: true,
 }
 
-function loadFilterOpen(): Record<FilterSectionId, boolean> {
+function loadFilterOpen(storageKey: string): Record<FilterSectionId, boolean> {
   try {
-    const raw = localStorage.getItem(FILTER_OPEN_KEY)
+    const raw = localStorage.getItem(storageKey)
     if (!raw) return { ...DEFAULT_FILTER_OPEN }
     const parsed = JSON.parse(raw) as Partial<Record<FilterSectionId, boolean>>
     return { ...DEFAULT_FILTER_OPEN, ...parsed }
@@ -80,9 +82,9 @@ const DEFAULT_COLUMNS: Record<ColumnId, boolean> = {
   status: true,
 }
 
-function loadVisibleColumns(): Record<ColumnId, boolean> {
+function loadVisibleColumns(storageKey: string): Record<ColumnId, boolean> {
   try {
-    const raw = localStorage.getItem(COLUMN_STORAGE_KEY)
+    const raw = localStorage.getItem(storageKey)
     if (!raw) return { ...DEFAULT_COLUMNS }
     const parsed = JSON.parse(raw) as Partial<Record<ColumnId, boolean>>
     return { ...DEFAULT_COLUMNS, ...parsed, number: true }
@@ -91,23 +93,31 @@ function loadVisibleColumns(): Record<ColumnId, boolean> {
   }
 }
 
-export function TendersPage() {
+export function TendersPage({ kind = 'tender' }: { kind?: 'tender' | 'mrs' }) {
+  const isMrs = kind === 'mrs'
+  const basePath = isMrs ? '/market-research' : '/tenders'
+  const columnStorageKey = isMrs ? MRS_COLUMN_STORAGE_KEY : COLUMN_STORAGE_KEY
+  const filterStorageKey = isMrs ? MRS_FILTER_OPEN_KEY : FILTER_OPEN_KEY
   const [params, setParams] = useSearchParams()
   const settingsQuery = useQuery({ queryKey: ['settings'], queryFn: () => api.getSettings() })
   const filters = useMemo(
     () => filtersFromParams(params, { pageSize: settingsQuery.data?.defaultPageSize }),
     [params, settingsQuery.data?.defaultPageSize],
   )
-  const [visibleColumns, setVisibleColumns] = useState<Record<ColumnId, boolean>>(loadVisibleColumns)
-  const [filterOpen, setFilterOpen] = useState<Record<FilterSectionId, boolean>>(loadFilterOpen)
+  const [visibleColumns, setVisibleColumns] = useState<Record<ColumnId, boolean>>(() =>
+    loadVisibleColumns(columnStorageKey),
+  )
+  const [filterOpen, setFilterOpen] = useState<Record<FilterSectionId, boolean>>(() =>
+    loadFilterOpen(filterStorageKey),
+  )
 
   useEffect(() => {
-    localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(visibleColumns))
-  }, [visibleColumns])
+    localStorage.setItem(columnStorageKey, JSON.stringify(visibleColumns))
+  }, [columnStorageKey, visibleColumns])
 
   useEffect(() => {
-    localStorage.setItem(FILTER_OPEN_KEY, JSON.stringify(filterOpen))
-  }, [filterOpen])
+    localStorage.setItem(filterStorageKey, JSON.stringify(filterOpen))
+  }, [filterOpen, filterStorageKey])
 
   const toggleFilterSection = (id: FilterSectionId) => {
     setFilterOpen((prev) => ({ ...prev, [id]: !prev[id] }))
@@ -119,10 +129,13 @@ export function TendersPage() {
     setVisibleColumns((prev) => ({ ...prev, [id]: !prev[id] }))
   }
 
-  const optionsQuery = useQuery({ queryKey: ['filter-options'], queryFn: () => api.getFilterOptions() })
+  const optionsQuery = useQuery({
+    queryKey: ['filter-options', kind],
+    queryFn: () => api.getFilterOptions(kind),
+  })
   const tendersQuery = useQuery({
-    queryKey: ['tenders', filters],
-    queryFn: () => api.getTenders(filters),
+    queryKey: ['tenders', kind, filters],
+    queryFn: () => api.getTenders({ ...filters, kind }),
   })
 
   const set = (key: string, value: string | null) => {
@@ -575,7 +588,7 @@ export function TendersPage() {
 
             {tendersQuery.isLoading && <LoadingState />}
             {tendersQuery.error && (
-              <ErrorState message={errorMessage(tendersQuery.error, 'Failed to load tenders')} />
+              <ErrorState message={errorMessage(tendersQuery.error, isMrs ? 'Failed to load market research' : 'Failed to load tenders')} />
             )}
             {tendersQuery.data && (
               <div className="table-wrap">
@@ -599,7 +612,7 @@ export function TendersPage() {
                       <tr key={t.appId}>
                         {visibleColumns.number && (
                           <td>
-                            <Link to={`/tenders/${t.appId}`}>{t.announcementNumber}</Link>
+                            <Link to={`${basePath}/${t.appId}`}>{t.announcementNumber}</Link>
                             <div className="georgian cell-truncate muted" title={t.title}>
                               {t.title}
                             </div>
@@ -630,7 +643,7 @@ export function TendersPage() {
                           <td>
                             {t.hasSpecText ? (
                               <Link
-                                to={`/tenders/${t.appId}#spec`}
+                                to={`${basePath}/${t.appId}#spec`}
                                 className="status-pill info"
                                 title="ტექნიკური attachment parsed — open the extracted text"
                               >
@@ -652,7 +665,7 @@ export function TendersPage() {
                 </table>
                 {tendersQuery.data.items.length === 0 && (
                   <div className="empty-state" style={{ minHeight: 120, border: 0 }}>
-                    No tenders match these filters.
+                    No {isMrs ? 'market research listings' : 'tenders'} match these filters.
                   </div>
                 )}
               </div>

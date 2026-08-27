@@ -46,12 +46,16 @@ export function formatPortalDate(value: string | null | undefined): string {
 export function statusColor(status: string): string {
   const map: Record<string, string> = {
     'Tender announced': 'info',
+    Announced: 'info',
     'Bidding commenced': 'info',
+    'Proposal collection started': 'info',
     'Bidding ended': 'violet',
+    'Proposal collection ended': 'violet',
     'Bidding completed': 'violet',
     'Selection/Evaluation': 'warning',
     'Winner identified': 'warning',
     'Contract awarded': 'success',
+    'Market research completed': 'success',
     'Contract not awarded': 'danger',
     'No bids received': 'danger',
     Terminated: 'neutral',

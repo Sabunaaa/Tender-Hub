@@ -17,13 +17,30 @@ function toDateInput(d: Date): string {
 }
 
 export function CategoriesPage() {
+  return (
+    <div>
+      <PageHeader
+        title="Tracked categories"
+        subtitle="Tenders and market research keep separate CPV lists, so you can scrape them independently"
+      />
+      <TrackedCategorySection kind="tender" heading="Tenders" />
+      <div style={{ height: 32 }} />
+      <TrackedCategorySection kind="mrs" heading="Market research" />
+    </div>
+  )
+}
+
+function TrackedCategorySection({ kind, heading }: { kind: 'tender' | 'mrs'; heading: string }) {
   const qc = useQueryClient()
   const [pickerOpen, setPickerOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [backfillTarget, setBackfillTarget] = useState<TrackedCategory | null>(null)
   const [backfillFrom, setBackfillFrom] = useState(defaultBackfillFrom)
 
-  const trackedQuery = useQuery({ queryKey: ['tracked'], queryFn: () => api.getTrackedCategories() })
+  const trackedQuery = useQuery({
+    queryKey: ['tracked', kind],
+    queryFn: () => api.getTrackedCategories(kind),
+  })
   const allQuery = useQuery({
     queryKey: ['all-categories'],
     queryFn: () => api.getAllCategories(),
@@ -31,9 +48,9 @@ export function CategoriesPage() {
   })
 
   const addMutation = useMutation({
-    mutationFn: (id: number) => api.addTrackedCategory(id),
+    mutationFn: (id: number) => api.addTrackedCategory(id, kind),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['tracked'] })
+      qc.invalidateQueries({ queryKey: ['tracked', kind] })
       qc.invalidateQueries({ queryKey: ['filter-options'] })
       qc.invalidateQueries({ queryKey: ['stats'] })
       setPickerOpen(false)
@@ -42,9 +59,9 @@ export function CategoriesPage() {
   })
 
   const removeMutation = useMutation({
-    mutationFn: (id: number) => api.removeTrackedCategory(id),
+    mutationFn: (id: number) => api.removeTrackedCategory(id, kind),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['tracked'] })
+      qc.invalidateQueries({ queryKey: ['tracked', kind] })
       qc.invalidateQueries({ queryKey: ['filter-options'] })
       qc.invalidateQueries({ queryKey: ['stats'] })
     },
@@ -52,9 +69,9 @@ export function CategoriesPage() {
 
   const backfillMutation = useMutation({
     mutationFn: ({ id, dateFrom }: { id: number; dateFrom: string }) =>
-      api.triggerBackfill(id, { dateFrom }),
+      api.triggerBackfill(id, { dateFrom, kind }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['tracked'] })
+      qc.invalidateQueries({ queryKey: ['tracked', kind] })
       qc.invalidateQueries({ queryKey: ['runs'] })
       void qc.refetchQueries({ queryKey: ['runs'] })
       setBackfillTarget(null)
@@ -63,9 +80,9 @@ export function CategoriesPage() {
   })
 
   const rescrapeMutation = useMutation({
-    mutationFn: (id: number) => api.triggerRescrape(id),
+    mutationFn: (id: number) => api.triggerRescrape(id, kind),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['tracked'] })
+      qc.invalidateQueries({ queryKey: ['tracked', kind] })
       qc.invalidateQueries({ queryKey: ['runs'] })
       void qc.refetchQueries({ queryKey: ['runs'] })
     },
@@ -91,8 +108,12 @@ export function CategoriesPage() {
   return (
     <div>
       <PageHeader
-        title="Tracked categories"
-        subtitle="Manage which CPV categories the daily scraper collects"
+        title={heading}
+        subtitle={
+          kind === 'mrs'
+            ? 'CPV categories scraped from the portal’s Market research (MRS) search'
+            : 'CPV categories scraped from the portal’s procurement tenders search'
+        }
         actions={
           <button type="button" onClick={() => setPickerOpen((v) => !v)} className="primary-button">
             <Plus size={16} /> Add category
@@ -161,7 +182,7 @@ export function CategoriesPage() {
               </div>
               <dl className="two-col" style={{ marginTop: 16 }}>
                 <div>
-                  <dt className="meta-label">Tenders</dt>
+                  <dt className="meta-label">{kind === 'mrs' ? 'MRS' : 'Tenders'}</dt>
                   <dd style={{ margin: '4px 0 0', fontWeight: 700 }}>{c.tenderCount}</dd>
                 </div>
                 <div>
@@ -189,7 +210,7 @@ export function CategoriesPage() {
                   onClick={() => {
                     if (
                       confirm(
-                        `Rescrape every tender in ${c.code} from scratch? Existing tenders will be fetched again, not skipped. This can take a long time.`,
+                        `Rescrape every ${kind === 'mrs' ? 'market research listing' : 'tender'} in ${c.code} from scratch? Existing rows will be fetched again, not skipped. This can take a long time.`,
                       )
                     ) {
                       rescrapeMutation.mutate(c.id)
@@ -233,7 +254,7 @@ export function CategoriesPage() {
           >
             <h2 id="backfill-dialog-title">Backfill {backfillTarget.code}</h2>
             <p className="muted" style={{ marginTop: 6, fontSize: 13 }}>
-              Choose the start date. Tenders will be scraped from that day through today for{' '}
+              Choose the start date. {kind === 'mrs' ? 'Market research listings' : 'Tenders'} will be scraped from that day through today for{' '}
               <strong>{backfillTarget.name}</strong>.
             </p>
             <label className="meta-label" style={{ display: 'block', marginTop: 16 }} htmlFor="backfill-from">

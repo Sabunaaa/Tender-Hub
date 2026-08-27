@@ -7,6 +7,7 @@ from typing import Any
 
 from .db import get_connection
 from .keywords import keyword_clause
+from .listing import KIND_MRS, KIND_TENDER, normalize_kind, public_app_id, store_app_id
 from .repository import Repository
 from .settings import TBILISI, load_settings
 
@@ -20,8 +21,11 @@ OPEN_STATUSES = (
 
 
 def _row_to_summary(r) -> dict[str, Any]:
+    kind = normalize_kind(r["kind"] if "kind" in r.keys() else KIND_TENDER)
+    stored_id = r["app_id"]
     return {
-        "appId": r["app_id"],
+        "appId": public_app_id(kind, stored_id),
+        "kind": kind,
         "key": r["key"],
         "announcementNumber": r["announcement_number"],
         "title": r["title"] or "",
@@ -57,11 +61,15 @@ SORT_MAP = {
 def list_tenders(filters: dict[str, Any], db_path=None) -> dict[str, Any]:
     clauses = []
     params: list[Any] = []
+    kind = normalize_kind(filters.get("kind"))
 
-    # Restrict to tracked categories by default
+    # Restrict to tracked categories for this listing type
+    clauses.append("COALESCE(kind, 'tender') = ?")
+    params.append(kind)
     clauses.append(
-        "category_code IN (SELECT code FROM tracked_categories WHERE enabled = 1)"
+        "category_code IN (SELECT code FROM tracked_categories WHERE enabled = 1 AND kind = ?)"
     )
+    params.append(kind)
 
     if filters.get("q"):
         clauses.append(
@@ -150,31 +158,33 @@ def list_tenders(filters: dict[str, Any], db_path=None) -> dict[str, Any]:
         }
 
 
-def get_tender(app_id: int, db_path=None) -> dict[str, Any] | None:
+def get_tender(app_id: int, db_path=None, kind: str = KIND_TENDER) -> dict[str, Any] | None:
+    listing_kind = normalize_kind(kind)
+    stored_id = store_app_id(listing_kind, app_id)
     with get_connection(db_path) as conn:
-        r = conn.execute("SELECT * FROM tenders WHERE app_id = ?", (app_id,)).fetchone()
+        r = conn.execute("SELECT * FROM tenders WHERE app_id = ?", (stored_id,)).fetchone()
         if not r:
             return None
         base = _row_to_summary(r)
         cpv = conn.execute(
             "SELECT code, name FROM tender_cpv_codes WHERE app_id=? ORDER BY code",
-            (app_id,),
+            (stored_id,),
         ).fetchall()
         sections = conn.execute(
             "SELECT id, section_id, title, body, language FROM tender_document_sections WHERE app_id=? ORDER BY id",
-            (app_id,),
+            (stored_id,),
         ).fetchall()
         atts = conn.execute(
             "SELECT id, name, url, kind, uploaded_at FROM tender_attachments WHERE app_id=? ORDER BY id",
-            (app_id,),
+            (stored_id,),
         ).fetchall()
         bids = conn.execute(
             "SELECT * FROM tender_bids WHERE app_id=? ORDER BY id",
-            (app_id,),
+            (stored_id,),
         ).fetchall()
         hist = conn.execute(
             "SELECT status, changed_at FROM tender_status_history WHERE app_id=? ORDER BY changed_at",
-            (app_id,),
+            (stored_id,),
         ).fetchall()
 
         section_atts = [a for a in atts if a["kind"] == "section"]
@@ -338,11 +348,43 @@ def _new_in_tbilisi_window(conn, where: str, codes: list[str], start: datetime) 
 def get_stats(db_path=None) -> dict[str, Any]:
     with get_connection(db_path) as conn:
         tracked = conn.execute(
-            "SELECT code FROM tracked_categories WHERE enabled=1"
+            "SELECT code FROM tracked_categories WHERE enabled=1 AND kind=?",
+            (KIND_TENDER,),
         ).fetchall()
         codes = [r["code"] for r in tracked]
+        mrs_codes = [
+            r["code"]
+            for r in conn.execute(
+                "SELECT code FROM tracked_categories WHERE enabled=1 AND kind=?",
+                (KIND_MRS,),
+            ).fetchall()
+        ]
         horizon = load_settings().closing_soon_days
+        empty_mrs = {
+            "mrsNewSince": dict(EMPTY_NEW_SINCE),
+            "mrsNewToday": dict(EMPTY_NEW_SINCE),
+            "mrsNewWeek": dict(EMPTY_NEW_SINCE),
+        }
+        tbilisi_today = datetime.now(TBILISI).replace(hour=0, minute=0, second=0, microsecond=0)
+        tbilisi_week = tbilisi_today - timedelta(days=tbilisi_today.weekday())
+        mrs_digest = dict(empty_mrs)
+        if mrs_codes:
+            mrs_ph = ",".join("?" * len(mrs_codes))
+            mrs_where = f"WHERE COALESCE(kind, 'tender') = 'mrs' AND category_code IN ({mrs_ph})"
+            mrs_digest = {
+                "mrsNewSince": _new_since_last_run(conn, mrs_where, mrs_codes),
+                "mrsNewToday": _new_in_tbilisi_window(conn, mrs_where, mrs_codes, tbilisi_today),
+                "mrsNewWeek": _new_in_tbilisi_window(conn, mrs_where, mrs_codes, tbilisi_week),
+            }
         if not codes:
+            engagement = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS total,
+                    COALESCE(SUM(CASE WHEN engaged = 1 THEN 1 ELSE 0 END), 0) AS engaged
+                FROM engagements
+                """
+            ).fetchone()
             return {
                 "totalTenders": 0,
                 "openTenders": 0,
@@ -350,8 +392,8 @@ def get_stats(db_path=None) -> dict[str, Any]:
                 "closingSoonDays": horizon,
                 "newThisWeek": 0,
                 "openUntracked": 0,
-                "onEngagement": 0,
-                "engagedCount": 0,
+                "onEngagement": int(engagement["total"] or 0),
+                "engagedCount": int(engagement["engaged"] or 0),
                 "currency": "GEL",
                 "byMonth": [],
                 "byCategory": [],
@@ -361,9 +403,10 @@ def get_stats(db_path=None) -> dict[str, Any]:
                 "newSince": dict(EMPTY_NEW_SINCE),
                 "newToday": dict(EMPTY_NEW_SINCE),
                 "newWeek": dict(EMPTY_NEW_SINCE),
+                **mrs_digest,
             }
         placeholders = ",".join("?" * len(codes))
-        where = f"WHERE category_code IN ({placeholders})"
+        where = f"WHERE COALESCE(kind, 'tender') = 'tender' AND category_code IN ({placeholders})"
         today = date.today().isoformat()
         week_start = (date.today() - timedelta(days=6)).isoformat()
         horizon_end = (date.today() + timedelta(days=horizon)).isoformat()
@@ -515,9 +558,6 @@ def get_stats(db_path=None) -> dict[str, Any]:
             [*codes, today, horizon_end, *OPEN_STATUSES],
         ).fetchall()
 
-        tbilisi_today = datetime.now(TBILISI).replace(hour=0, minute=0, second=0, microsecond=0)
-        tbilisi_week = tbilisi_today - timedelta(days=tbilisi_today.weekday())
-
         return {
             "totalTenders": total,
             "openTenders": int(totals["open_count"] or 0),
@@ -536,11 +576,13 @@ def get_stats(db_path=None) -> dict[str, Any]:
             "newSince": _new_since_last_run(conn, where, codes),
             "newToday": _new_in_tbilisi_window(conn, where, codes, tbilisi_today),
             "newWeek": _new_in_tbilisi_window(conn, where, codes, tbilisi_week),
+            **mrs_digest,
         }
 
 
-def filter_options(repo: Repository, db_path=None) -> dict[str, Any]:
-    tracked = repo.list_tracked()
+def filter_options(repo: Repository, db_path=None, kind: str = KIND_TENDER) -> dict[str, Any]:
+    listing_kind = normalize_kind(kind)
+    tracked = repo.list_tracked(kind=listing_kind)
     codes = [c["code"] for c in tracked if c["enabled"]]
     with get_connection(db_path) as conn:
         if not codes:
@@ -552,25 +594,27 @@ def filter_options(repo: Repository, db_path=None) -> dict[str, Any]:
                 "trackedCategories": tracked,
             }
         placeholders = ",".join("?" * len(codes))
+        scope = f"COALESCE(kind, 'tender') = ? AND category_code IN ({placeholders})"
+        scope_params: list[Any] = [listing_kind, *codes]
         statuses = [
             r["status"]
             for r in conn.execute(
-                f"SELECT DISTINCT status FROM tenders WHERE category_code IN ({placeholders}) AND status IS NOT NULL ORDER BY status",
-                codes,
+                f"SELECT DISTINCT status FROM tenders WHERE {scope} AND status IS NOT NULL ORDER BY status",
+                scope_params,
             )
         ]
         types = [
             r["procurement_type"]
             for r in conn.execute(
-                f"SELECT DISTINCT procurement_type FROM tenders WHERE category_code IN ({placeholders}) AND procurement_type IS NOT NULL ORDER BY procurement_type",
-                codes,
+                f"SELECT DISTINCT procurement_type FROM tenders WHERE {scope} AND procurement_type IS NOT NULL ORDER BY procurement_type",
+                scope_params,
             )
         ]
         buyers = [
             r["buyer"]
             for r in conn.execute(
-                f"SELECT DISTINCT buyer FROM tenders WHERE category_code IN ({placeholders}) AND buyer IS NOT NULL ORDER BY buyer",
-                codes,
+                f"SELECT DISTINCT buyer FROM tenders WHERE {scope} AND buyer IS NOT NULL ORDER BY buyer",
+                scope_params,
             )
         ]
         return {

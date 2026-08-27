@@ -8,6 +8,7 @@ from typing import Any
 
 from . import config
 from .db import connect, get_connection, init_db
+from .listing import KIND_TENDER, normalize_kind, store_app_id
 from .parsers import ParsedTender, parse_main_tab
 from .specs import SPEC_MARKER
 
@@ -36,6 +37,7 @@ class Repository:
         category_code: str | None = None,
         category_name: str | None = None,
         replace: frozenset[str] | set[str] | None = None,
+        listing_kind: str = KIND_TENDER,
     ) -> bool:
         """Insert or update a tender. Returns True if newly inserted.
 
@@ -46,16 +48,21 @@ class Repository:
         """
         replace = frozenset(replace) if replace is not None else ALL_TENDER_PARTS
         scraped_at = now_iso()
+        kind = normalize_kind(getattr(tender, "kind", None) or listing_kind)
+        stored_id = store_app_id(kind, tender.app_id)
 
         with get_connection(self.db_path) as conn:
             existing = conn.execute(
                 "SELECT status, category_code, category_name FROM tenders WHERE app_id = ?",
-                (tender.app_id,),
+                (stored_id,),
             ).fetchone()
             is_new = existing is None
             tracked_codes = {
                 r["code"]
-                for r in conn.execute("SELECT code FROM tracked_categories WHERE enabled = 1")
+                for r in conn.execute(
+                    "SELECT code FROM tracked_categories WHERE enabled = 1 AND kind = ?",
+                    (kind,),
+                )
             }
             # Listing "Procuring category" is often a more specific or sibling CPV
             # than the division we searched. Keep an existing tracked bucket; otherwise
@@ -73,16 +80,17 @@ class Repository:
             conn.execute(
                 """
                 INSERT INTO tenders (
-                    app_id, key, announcement_number, title, status, procurement_type, donor,
+                    app_id, kind, key, announcement_number, title, status, procurement_type, donor,
                     buyer, buyer_org_id, category_code, category_name, announcement_date,
                     bid_deadline, bids_accepted_from, estimated_value, currency, bidder_count,
                     winner, contract_status, source_url, description, supply_period, vat_terms,
                     guarantee_amount, guarantee_validity, bid_reduction_step, amount_or_volume,
                     additional_info, spec_text, scraped_at, updated_at
                 ) VALUES (
-                    ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+                    ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
                 )
                 ON CONFLICT(app_id) DO UPDATE SET
+                    kind=excluded.kind,
                     key=excluded.key,
                     announcement_number=excluded.announcement_number,
                     title=excluded.title,
@@ -115,7 +123,7 @@ class Repository:
                     updated_at=excluded.updated_at
                 """,
                 (
-                    tender.app_id, tender.key, tender.announcement_number, tender.title, tender.status,
+                    stored_id, kind, tender.key, tender.announcement_number, tender.title, tender.status,
                     tender.procurement_type, tender.donor, tender.buyer, tender.buyer_org_id, tender.category_code,
                     tender.category_name, tender.announcement_date, tender.bid_deadline,
                     tender.bids_accepted_from, tender.estimated_value, tender.currency, tender.bidder_count,
@@ -128,7 +136,7 @@ class Repository:
 
             # Replace only the child rows whose source tab was fetched this time
             if "main" in replace:
-                conn.execute("DELETE FROM tender_cpv_codes WHERE app_id = ?", (tender.app_id,))
+                conn.execute("DELETE FROM tender_cpv_codes WHERE app_id = ?", (stored_id,))
                 codes_seen: set[str] = set()
                 for cpv in tender.cpv_codes:
                     code = (cpv.get("code") or "").strip()
@@ -137,19 +145,19 @@ class Repository:
                     codes_seen.add(code)
                     conn.execute(
                         "INSERT OR IGNORE INTO tender_cpv_codes (app_id, code, name) VALUES (?,?,?)",
-                        (tender.app_id, code, cpv.get("name")),
+                        (stored_id, code, cpv.get("name")),
                     )
                 if tender.category_code and tender.category_code not in codes_seen:
                     conn.execute(
                         "INSERT OR IGNORE INTO tender_cpv_codes (app_id, code, name) VALUES (?,?,?)",
-                        (tender.app_id, tender.category_code, tender.category_name),
+                        (stored_id, tender.category_code, tender.category_name),
                     )
 
             if "docs" in replace:
-                conn.execute("DELETE FROM tender_document_sections WHERE app_id = ?", (tender.app_id,))
+                conn.execute("DELETE FROM tender_document_sections WHERE app_id = ?", (stored_id,))
                 conn.execute(
                     "DELETE FROM tender_attachments WHERE app_id = ? AND kind IN ('section','doc')",
-                    (tender.app_id,),
+                    (stored_id,),
                 )
                 for sec in tender.document_sections:
                     conn.execute(
@@ -157,32 +165,32 @@ class Repository:
                         INSERT INTO tender_document_sections (app_id, section_id, title, body, language)
                         VALUES (?,?,?,?,?)
                         """,
-                        (tender.app_id, sec.get("section_id"), sec.get("title"), sec.get("body"), sec.get("language", "ka")),
+                        (stored_id, sec.get("section_id"), sec.get("title"), sec.get("body"), sec.get("language", "ka")),
                     )
                     for att in sec.get("attachments") or []:
                         conn.execute(
                             "INSERT INTO tender_attachments (app_id, name, url, kind) VALUES (?,?,?,?)",
-                            (tender.app_id, att.get("name"), att.get("url"), "section"),
+                            (stored_id, att.get("name"), att.get("url"), "section"),
                         )
                 for att in tender.attachments:
                     conn.execute(
                         "INSERT INTO tender_attachments (app_id, name, url, kind) VALUES (?,?,?,?)",
-                        (tender.app_id, att.get("name"), att.get("url"), "doc"),
+                        (stored_id, att.get("name"), att.get("url"), "doc"),
                     )
 
             if "results" in replace:
                 conn.execute(
                     "DELETE FROM tender_attachments WHERE app_id = ? AND kind = 'result'",
-                    (tender.app_id,),
+                    (stored_id,),
                 )
                 for att in tender.result_documents:
                     conn.execute(
                         "INSERT INTO tender_attachments (app_id, name, url, kind) VALUES (?,?,?,?)",
-                        (tender.app_id, att.get("name"), att.get("url"), "result"),
+                        (stored_id, att.get("name"), att.get("url"), "result"),
                     )
 
             if "bids" in replace:
-                conn.execute("DELETE FROM tender_bids WHERE app_id = ?", (tender.app_id,))
+                conn.execute("DELETE FROM tender_bids WHERE app_id = ?", (stored_id,))
             for bid in tender.bids if "bids" in replace else []:
                 conn.execute(
                     """
@@ -192,7 +200,7 @@ class Repository:
                     ) VALUES (?,?,?,?,?,?,?,?)
                     """,
                     (
-                        tender.app_id, bid.get("bidder_name"), bid.get("bidder_org_id"),
+                        stored_id, bid.get("bidder_name"), bid.get("bidder_org_id"),
                         bid.get("first_offer_amount"), bid.get("first_offer_at"),
                         bid.get("last_offer_amount"), bid.get("last_offer_at"), bid.get("offer_count", 1),
                     ),
@@ -203,7 +211,7 @@ class Repository:
                     INSERT OR IGNORE INTO tender_status_history (app_id, status, changed_at)
                     VALUES (?,?,?)
                     """,
-                    (tender.app_id, hist.get("status"), hist.get("changed_at")),
+                    (stored_id, hist.get("status"), hist.get("changed_at")),
                 )
             # Track status change if status flipped
             if existing and existing["status"] != tender.status and tender.status:
@@ -212,7 +220,7 @@ class Repository:
                     INSERT OR IGNORE INTO tender_status_history (app_id, status, changed_at)
                     VALUES (?,?,?)
                     """,
-                    (tender.app_id, tender.status, scraped_at),
+                    (stored_id, tender.status, scraped_at),
                 )
             return is_new
 
@@ -308,37 +316,48 @@ class Repository:
                 (app_id, kind, html),
             )
 
-    def earliest_announcement_date(self, category_code: str) -> str | None:
+    def earliest_announcement_date(self, category_code: str, listing_kind: str = KIND_TENDER) -> str | None:
+        kind = normalize_kind(listing_kind)
         with get_connection(self.db_path) as conn:
             row = conn.execute(
                 """
                 SELECT MIN(announcement_date) AS d
                 FROM tenders
                 WHERE category_code = ?
+                  AND COALESCE(kind, 'tender') = ?
                   AND announcement_date IS NOT NULL
                   AND announcement_date != ''
                 """,
-                (category_code,),
+                (category_code, kind),
             ).fetchone()
         value = row["d"] if row else None
         return str(value)[:10] if value else None
 
-    def list_tracked(self, enabled_only: bool = False) -> list[dict[str, Any]]:
+    def list_tracked(self, enabled_only: bool = False, kind: str = KIND_TENDER) -> list[dict[str, Any]]:
+        listing_kind = normalize_kind(kind)
         with get_connection(self.db_path) as conn:
-            sql = "SELECT * FROM tracked_categories"
+            sql = "SELECT * FROM tracked_categories WHERE kind = ?"
+            params: list[Any] = [listing_kind]
             if enabled_only:
-                sql += " WHERE enabled = 1"
+                sql += " AND enabled = 1"
             sql += " ORDER BY code"
-            rows = conn.execute(sql).fetchall()
+            rows = conn.execute(sql, params).fetchall()
             counts = {
                 r["category_code"]: r["c"]
                 for r in conn.execute(
-                    "SELECT category_code, COUNT(*) AS c FROM tenders GROUP BY category_code"
+                    """
+                    SELECT category_code, COUNT(*) AS c
+                    FROM tenders
+                    WHERE COALESCE(kind, 'tender') = ?
+                    GROUP BY category_code
+                    """,
+                    (listing_kind,),
                 ).fetchall()
             }
             return [
                 {
                     "id": r["id"],
+                    "kind": r["kind"] if "kind" in r.keys() else listing_kind,
                     "code": r["code"],
                     "name": r["name"],
                     "enabled": bool(r["enabled"]),
@@ -348,27 +367,36 @@ class Repository:
                 for r in rows
             ]
 
-    def add_tracked(self, category_id: int, code: str, name: str) -> dict[str, Any]:
+    def add_tracked(
+        self, category_id: int, code: str, name: str, kind: str = KIND_TENDER
+    ) -> dict[str, Any]:
+        listing_kind = normalize_kind(kind)
         with get_connection(self.db_path) as conn:
             conn.execute(
                 """
-                INSERT INTO tracked_categories (id, code, name, enabled)
-                VALUES (?,?,?,1)
-                ON CONFLICT(id) DO UPDATE SET code=excluded.code, name=excluded.name, enabled=1
+                INSERT INTO tracked_categories (id, kind, code, name, enabled)
+                VALUES (?,?,?,?,1)
+                ON CONFLICT(id, kind) DO UPDATE SET code=excluded.code, name=excluded.name, enabled=1
                 """,
-                (category_id, code, name),
+                (category_id, listing_kind, code, name),
             )
             conn.execute(
                 "INSERT OR IGNORE INTO cpv_categories (id, code, name) VALUES (?,?,?)",
                 (category_id, code, name),
             )
-        return next(c for c in self.list_tracked() if c["id"] == category_id)
+        return next(c for c in self.list_tracked(kind=listing_kind) if c["id"] == category_id)
 
-    def remove_tracked(self, category_id: int) -> None:
+    def remove_tracked(self, category_id: int, kind: str = KIND_TENDER) -> None:
+        listing_kind = normalize_kind(kind)
         with get_connection(self.db_path) as conn:
-            conn.execute("DELETE FROM tracked_categories WHERE id = ?", (category_id,))
+            conn.execute(
+                "DELETE FROM tracked_categories WHERE id = ? AND kind = ?",
+                (category_id, listing_kind),
+            )
 
-    def claim_for_tracked_category(self, app_id: int, code: str, name: str) -> bool:
+    def claim_for_tracked_category(
+        self, app_id: int, code: str, name: str, listing_kind: str = KIND_TENDER
+    ) -> bool:
         """Move a stored tender onto `code` when its procuring CPV is not tracked.
 
         Unchanged listings skip a full upsert, so without this a backfill of a new
@@ -384,7 +412,10 @@ class Repository:
                 return False
             tracked = {
                 r["code"]
-                for r in conn.execute("SELECT code FROM tracked_categories WHERE enabled = 1")
+                for r in conn.execute(
+                    "SELECT code FROM tracked_categories WHERE enabled = 1 AND kind = ?",
+                    (normalize_kind(listing_kind),),
+                )
             }
             current = row["category_code"] or ""
             if current in tracked:
@@ -409,6 +440,7 @@ class Repository:
         keep_app_ids: set[int],
         date_from: str,
         date_to: str,
+        listing_kind: str = KIND_TENDER,
     ) -> int:
         """Move tenders out of ``category_code`` when the portal procuring category differs.
 
@@ -421,10 +453,11 @@ class Repository:
                 """
                 SELECT app_id, key FROM tenders
                 WHERE category_code = ?
+                  AND COALESCE(kind, 'tender') = ?
                   AND announcement_date >= ?
                   AND announcement_date <= ?
                 """,
-                (category_code, date_from, date_to),
+                (category_code, normalize_kind(listing_kind), date_from, date_to),
             ).fetchall()
             for row in rows:
                 app_id = int(row["app_id"])
@@ -455,11 +488,11 @@ class Repository:
                 released += 1
         return released
 
-    def mark_scraped(self, category_id: int) -> None:
+    def mark_scraped(self, category_id: int, kind: str = KIND_TENDER) -> None:
         with get_connection(self.db_path) as conn:
             conn.execute(
-                "UPDATE tracked_categories SET last_scraped_at = ? WHERE id = ?",
-                (now_iso(), category_id),
+                "UPDATE tracked_categories SET last_scraped_at = ? WHERE id = ? AND kind = ?",
+                (now_iso(), category_id, normalize_kind(kind)),
             )
 
     def start_run(
@@ -471,6 +504,7 @@ class Repository:
         date_to: str | None = None,
         category_ids: list[int] | None = None,
         resumed_from: int | None = None,
+        listing_kind: str | None = None,
     ) -> int:
         total = categories_total if categories_total is not None else len(categories)
         with get_connection(self.db_path) as conn:
@@ -487,9 +521,9 @@ class Repository:
                     started_at, status, mode, categories, tenders_found, tenders_upserted,
                     tenders_skipped, tenders_processed, progress_total, categories_done,
                     categories_total, current_category, date_from, date_to, category_ids,
-                    resumed_from, errors
+                    resumed_from, listing_kind, errors
                 )
-                VALUES (?, 'running', ?, ?, 0, 0, 0, 0, 0, 0, ?, NULL, ?, ?, ?, ?, '[]')
+                VALUES (?, 'running', ?, ?, 0, 0, 0, 0, 0, 0, ?, NULL, ?, ?, ?, ?, ?, '[]')
                 """,
                 (
                     now_iso(),
@@ -500,6 +534,7 @@ class Repository:
                     date_to,
                     json.dumps(category_ids) if category_ids is not None else None,
                     resumed_from,
+                    listing_kind,
                 ),
             )
             return int(cur.lastrowid)
@@ -658,6 +693,7 @@ class Repository:
             "dateFrom": date_from,
             "dateTo": r["date_to"] if "date_to" in keys else None,
             "categoryIds": json.loads(category_ids) if category_ids else None,
+            "listingKind": r["listing_kind"] if "listing_kind" in keys else None,
             "resumedFrom": r["resumed_from"] if "resumed_from" in keys else None,
             # An interrupted run can be picked up again; unchanged tenders are skipped
             # on the second pass, so resuming costs far less than the original run.

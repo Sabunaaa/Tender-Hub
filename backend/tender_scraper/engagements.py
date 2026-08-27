@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .db import get_connection
+from .listing import KIND_MRS, KIND_TENDER, normalize_kind, public_app_id
 from .repository import now_iso
 
 # Huawei Enterprise ICT product lines used as engagement products.
@@ -39,10 +40,16 @@ def _normalize_product(value: str | None) -> str:
 
 def _row(r) -> dict[str, Any]:
     product = r["domain"] or ""
+    kind = normalize_kind(r["kind"] if "kind" in r.keys() and r["kind"] else KIND_TENDER)
+    number = r["announcement_number"] or ""
+    if kind == KIND_TENDER and number.upper().startswith("MRS"):
+        kind = KIND_MRS
+    stored_id = r["app_id"]
     return {
         "id": r["id"],
-        "announcementNumber": r["announcement_number"],
-        "appId": r["app_id"],
+        "announcementNumber": number,
+        "appId": public_app_id(kind, stored_id) if stored_id else None,
+        "kind": kind,
         "engaged": bool(r["engaged"]),
         "accountManager": r["account_manager"] or "",
         "solutionManager": r["solution_manager"] or "",
@@ -72,7 +79,7 @@ _SELECT = """
            e.domain, e.info, e.created_at, e.updated_at,
            t.title, t.buyer, t.status, t.procurement_type, t.donor, t.category_code, t.category_name,
            t.announcement_date, t.bids_accepted_from, t.bid_deadline,
-           t.estimated_value, t.currency, t.bidder_count
+           t.estimated_value, t.currency, t.bidder_count, t.kind
     FROM engagements e
     LEFT JOIN tenders t ON t.app_id = e.app_id
 """

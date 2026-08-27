@@ -331,11 +331,38 @@ export const mockApi: DataSource = {
         count: newThisWeek,
         items: newlyAdded.filter((t) => t.announcementDate.slice(0, 10) >= weekStart).map(toSummary),
       },
+      mrsNewSince: {
+        since: lastRun?.startedAt ?? null,
+        runId: lastRun?.id ?? null,
+        runStatus: lastRun?.status ?? null,
+        runFinishedAt: lastRun?.finishedAt ?? null,
+        count: 0,
+        items: [],
+      },
+      mrsNewToday: {
+        since: today,
+        runId: null,
+        runStatus: null,
+        runFinishedAt: null,
+        count: 0,
+        items: [],
+      },
+      mrsNewWeek: {
+        since: weekStart,
+        runId: null,
+        runStatus: null,
+        runFinishedAt: null,
+        count: 0,
+        items: [],
+      },
     }
   },
 
   async getTenders(filters: TenderFilters): Promise<Paginated<TenderSummary>> {
     await delay()
+    if (filters.kind === 'mrs') {
+      return { items: [], total: 0, page: filters.page ?? 1, pageSize: filters.pageSize ?? 20 }
+    }
     const items = filterTenders(filters)
     const page = filters.page ?? 1
     const pageSize = filters.pageSize ?? 20
@@ -348,14 +375,14 @@ export const mockApi: DataSource = {
     }
   },
 
-  async getTender(appId: number): Promise<TenderDetail> {
+  async getTender(appId: number, _kind?: 'tender' | 'mrs'): Promise<TenderDetail> {
     await delay()
     const t = MOCK_TENDERS.find((x) => x.appId === appId)
     if (!t) throw new Error(`Tender ${appId} not found`)
     return t
   },
 
-  async getFilterOptions(): Promise<FilterOptions> {
+  async getFilterOptions(_kind?: 'tender' | 'mrs'): Promise<FilterOptions> {
     await delay(80)
     const trackedList = mockTrackedStore.list()
     const tracked = new Set(trackedList.filter((c) => c.enabled).map((c) => c.code))
@@ -374,12 +401,12 @@ export const mockApi: DataSource = {
     return ALL_CPV_CATEGORIES
   },
 
-  async getTrackedCategories(): Promise<TrackedCategory[]> {
+  async getTrackedCategories(_kind?: 'tender' | 'mrs'): Promise<TrackedCategory[]> {
     await delay(50)
     return [...mockTrackedStore.list()]
   },
 
-  async addTrackedCategory(categoryId: number): Promise<TrackedCategory> {
+  async addTrackedCategory(categoryId: number, _kind?: 'tender' | 'mrs'): Promise<TrackedCategory> {
     await delay()
     const cat = ALL_CPV_CATEGORIES.find((c) => c.id === categoryId)
     if (!cat) throw new Error('Category not found')
@@ -395,7 +422,7 @@ export const mockApi: DataSource = {
     return entry
   },
 
-  async removeTrackedCategory(categoryId: number): Promise<void> {
+  async removeTrackedCategory(categoryId: number, _kind?: 'tender' | 'mrs'): Promise<void> {
     await delay()
     mockTrackedStore.set(mockTrackedStore.list().filter((c) => c.id !== categoryId))
   },
@@ -454,7 +481,7 @@ export const mockApi: DataSource = {
     return run
   },
 
-  async triggerRescrape(categoryId: number): Promise<ScrapeRun> {
+  async triggerRescrape(categoryId: number, _kind?: 'tender' | 'mrs'): Promise<ScrapeRun> {
     const run = await mockApi.triggerBackfill(categoryId)
     run.mode = 'rescrape'
     return run

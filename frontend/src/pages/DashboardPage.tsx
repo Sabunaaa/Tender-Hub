@@ -41,25 +41,26 @@ const DIGESTS = [
   {
     id: 'last' as const,
     label: 'New since last scrape',
-    empty: (ago: string | null) =>
+    empty: (ago: string | null, noun: string) =>
       ago
-        ? `No new tenders in the run that finished ${ago}.`
-        : 'No new tenders yet — run a scrape to populate this.',
+        ? `No new ${noun} in the run that finished ${ago}.`
+        : `No new ${noun} yet — run a scrape to populate this.`,
   },
   {
     id: 'today' as const,
     label: "Today's scrape results",
-    empty: () => "No tenders first seen in today's scrapes.",
+    empty: (_ago: string | null, noun: string) => `No ${noun} first seen in today's scrapes.`,
   },
   {
     id: 'week' as const,
     label: "This week's scrape results",
-    empty: () => "No tenders first seen in this week's scrapes.",
+    empty: (_ago: string | null, noun: string) => `No ${noun} first seen in this week's scrapes.`,
   },
 ]
 
 export function DashboardPage() {
   const [digestMode, setDigestMode] = useState<(typeof DIGESTS)[number]['id']>('last')
+  const [listingKind, setListingKind] = useState<'tender' | 'mrs'>('tender')
   const { data, isLoading, error } = useQuery({
     queryKey: ['stats'],
     queryFn: () => api.getStats(),
@@ -86,13 +87,22 @@ export function DashboardPage() {
     : 0
 
   const digest = DIGESTS.find((item) => item.id === digestMode) ?? DIGESTS[0]!
+  const digestNoun = listingKind === 'mrs' ? 'market research listings' : 'tenders'
   const digestData =
-    digestMode === 'today'
-      ? data.newToday
-      : digestMode === 'week'
-        ? data.newWeek
-        : data.newSince
+    listingKind === 'mrs'
+      ? digestMode === 'today'
+        ? data.mrsNewToday
+        : digestMode === 'week'
+          ? data.mrsNewWeek
+          : data.mrsNewSince
+      : digestMode === 'today'
+        ? data.newToday
+        : digestMode === 'week'
+          ? data.newWeek
+          : data.newSince
   const newSince = digestData ?? { count: 0, items: [] as typeof data.closingSoon }
+  const digestItemPath = (appId: number) =>
+    listingKind === 'mrs' ? `/market-research/${appId}` : `/tenders/${appId}`
   const scrapedAgo = (() => {
     const last = data.newSince?.runFinishedAt ?? data.newSince?.since
     if (!last) return null
@@ -200,6 +210,24 @@ export function DashboardPage() {
             }
           >
             <div className="digest-tabs">
+              {(
+                [
+                  { id: 'tender' as const, label: 'Tenders' },
+                  { id: 'mrs' as const, label: 'MRS' },
+                ] as const
+              ).map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`chip-button${listingKind === item.id ? ' active' : ''}`}
+                  aria-pressed={listingKind === item.id}
+                  onClick={() => setListingKind(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            <div className="digest-tabs">
               {DIGESTS.map((item) => (
                 <button
                   key={item.id}
@@ -214,7 +242,7 @@ export function DashboardPage() {
             </div>
             {newSince.count === 0 ? (
               <div className="empty-state" style={{ minHeight: 100 }}>
-                {digest.empty(scrapedAgo)}
+                {digest.empty(scrapedAgo, digestNoun)}
               </div>
             ) : (
               <div className="table-wrap">
@@ -234,7 +262,7 @@ export function DashboardPage() {
                     {newSince.items.map((t) => (
                       <tr key={t.appId}>
                         <td>
-                          <Link to={`/tenders/${t.appId}`}>{t.announcementNumber}</Link>
+                          <Link to={digestItemPath(t.appId)}>{t.announcementNumber}</Link>
                           <div className="georgian cell-truncate muted" title={t.title}>
                             {t.title}
                           </div>
@@ -255,7 +283,7 @@ export function DashboardPage() {
                 </table>
                 {newSince.count > newSince.items.length && (
                   <div className="muted" style={{ padding: '10px 15px' }}>
-                    Showing {newSince.items.length} of {newSince.count} new tenders.
+                    Showing {newSince.items.length} of {newSince.count} new {digestNoun}.
                   </div>
                 )}
               </div>

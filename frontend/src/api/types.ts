@@ -7,10 +7,13 @@ export interface CpvCategory {
   nameKa?: string
 }
 
+export type ListingKind = 'tender' | 'mrs'
+
 export interface TrackedCategory extends CpvCategory {
   enabled: boolean
   tenderCount: number
   lastScrapedAt: string | null
+  kind?: ListingKind
 }
 
 export interface TenderCpvCode {
@@ -50,6 +53,7 @@ export interface StatusHistoryEntry {
 
 export interface TenderSummary {
   appId: number
+  kind?: ListingKind
   key: string
   announcementNumber: string
   title: string
@@ -117,6 +121,7 @@ export interface TenderFilters {
   pageSize?: number
   sortBy?: 'announcementDate' | 'bidDeadline' | 'estimatedValue' | 'status' | 'buyer'
   sortDir?: 'asc' | 'desc'
+  kind?: ListingKind
 }
 
 export interface Paginated<T> {
@@ -158,6 +163,9 @@ export interface DashboardStats {
   newSince?: NewSinceLastRun
   newToday?: NewSinceLastRun
   newWeek?: NewSinceLastRun
+  mrsNewSince?: NewSinceLastRun
+  mrsNewToday?: NewSinceLastRun
+  mrsNewWeek?: NewSinceLastRun
 }
 
 export interface FilterOptions {
@@ -236,6 +244,7 @@ export interface Engagement {
   id: number
   announcementNumber: string
   appId: number | null
+  kind?: ListingKind
   engaged: boolean
   accountManager: string
   solutionManager: string
@@ -261,14 +270,17 @@ export interface Engagement {
 export interface DataSource {
   getStats(): Promise<DashboardStats>
   getTenders(filters: TenderFilters): Promise<Paginated<TenderSummary>>
-  getTender(appId: number): Promise<TenderDetail>
-  getFilterOptions(): Promise<FilterOptions>
+  getTender(appId: number, kind?: ListingKind): Promise<TenderDetail>
+  getFilterOptions(kind?: ListingKind): Promise<FilterOptions>
   getAllCategories(): Promise<CpvCategory[]>
-  getTrackedCategories(): Promise<TrackedCategory[]>
-  addTrackedCategory(categoryId: number): Promise<TrackedCategory>
-  removeTrackedCategory(categoryId: number): Promise<void>
-  triggerBackfill(categoryId: number, options?: { dateFrom?: string; days?: number }): Promise<ScrapeRun>
-  triggerRescrape(categoryId: number): Promise<ScrapeRun>
+  getTrackedCategories(kind?: ListingKind): Promise<TrackedCategory[]>
+  addTrackedCategory(categoryId: number, kind?: ListingKind): Promise<TrackedCategory>
+  removeTrackedCategory(categoryId: number, kind?: ListingKind): Promise<void>
+  triggerBackfill(
+    categoryId: number,
+    options?: { dateFrom?: string; days?: number; kind?: ListingKind },
+  ): Promise<ScrapeRun>
+  triggerRescrape(categoryId: number, kind?: ListingKind): Promise<ScrapeRun>
   getScrapeHealth(): Promise<ScrapeHealth>
   stopScrape(): Promise<{ ok: boolean; run: ScrapeRun | null }>
   resumeRun(runId: number): Promise<ScrapeRun>

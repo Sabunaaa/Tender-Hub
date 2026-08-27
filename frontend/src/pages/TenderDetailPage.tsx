@@ -12,10 +12,13 @@ export function TenderDetailPage() {
   const { id } = useParams()
   const appId = Number(id)
   const navigate = useNavigate()
+  const { hash, pathname } = useLocation()
+  const kind = pathname.startsWith('/market-research') ? 'mrs' : 'tender'
+  const listPath = kind === 'mrs' ? '/market-research' : '/tenders'
   const qc = useQueryClient()
   const { data, isLoading, error } = useQuery({
-    queryKey: ['tender', appId],
-    queryFn: () => api.getTender(appId),
+    queryKey: ['tender', kind, appId],
+    queryFn: () => api.getTender(appId, kind),
     enabled: Number.isFinite(appId),
   })
   const addEngagement = useMutation({
@@ -31,7 +34,6 @@ export function TenderDetailPage() {
     },
   })
 
-  const { hash } = useLocation()
   const specRef = useRef<HTMLDivElement | null>(null)
   const specText = data?.specText?.trim() ?? ''
 
@@ -42,8 +44,8 @@ export function TenderDetailPage() {
     specRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [hash, specText])
 
-  if (isLoading) return <LoadingState label="Loading tender…" />
-  if (error || !data) return <ErrorState message={errorMessage(error, 'Tender not found')} />
+  if (isLoading) return <LoadingState label={kind === 'mrs' ? 'Loading market research…' : 'Loading tender…'} />
+  if (error || !data) return <ErrorState message={errorMessage(error, kind === 'mrs' ? 'Market research not found' : 'Tender not found')} />
 
   return (
     <div>
@@ -59,7 +61,7 @@ export function TenderDetailPage() {
         </div>
         <div className="tender-detail-actions">
           <div className="toolbar-actions">
-            <Link to="/tenders" className="secondary-button">
+            <Link to={listPath} className="secondary-button">
               Back
             </Link>
             <a href={data.sourceUrl} target="_blank" rel="noreferrer" className="primary-button">

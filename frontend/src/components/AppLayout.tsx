@@ -1,15 +1,5 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import {
-  ChevronLeft,
-  ChevronRight,
-  Handshake,
-  LayoutDashboard,
-  LogOut,
-  Menu,
-  Search,
-  Settings,
-  X,
-} from 'lucide-react'
+import { ChevronLeft, ChevronRight, Handshake, LayoutDashboard, LogOut, Menu, ScanSearch, Search, Settings, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { isMockMode } from '../api'
@@ -23,6 +13,7 @@ import { SETTINGS_TABS } from '../lib/settingsNav'
 const nav = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true, eyebrow: 'Overview', title: 'Tender intelligence' },
   { to: '/tenders', label: 'Tenders', icon: Search, eyebrow: 'Explorer', title: 'Procurement tenders' },
+  { to: '/market-research', label: 'Market research', icon: ScanSearch, eyebrow: 'MRS', title: 'Market research' },
   { to: '/engagement', label: 'Engagement', icon: Handshake, eyebrow: 'Pipeline', title: 'Engagement' },
 ]
 

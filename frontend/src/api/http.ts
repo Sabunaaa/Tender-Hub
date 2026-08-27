@@ -61,6 +61,7 @@ function toQuery(filters: TenderFilters): string {
   set('pageSize', filters.pageSize)
   set('sortBy', filters.sortBy)
   set('sortDir', filters.sortDir)
+  if (filters.kind && filters.kind !== 'tender') params.set('kind', filters.kind)
   filters.categoryCodes?.forEach((c) => params.append('categoryCodes', c))
   filters.status?.forEach((c) => params.append('status', c))
   filters.procurementType?.forEach((c) => params.append('procurementType', c))
@@ -72,27 +73,37 @@ export const httpApi: DataSource = {
   getStats: () => request<DashboardStats>('/api/stats'),
   getTenders: (filters) =>
     request<Paginated<TenderSummary>>(`/api/tenders?${toQuery(filters)}`),
-  getTender: (appId) => request<TenderDetail>(`/api/tenders/${appId}`),
-  getFilterOptions: () => request<FilterOptions>('/api/filters/options'),
+  getTender: (appId, kind) =>
+    request<TenderDetail>(`/api/tenders/${appId}${kind && kind !== 'tender' ? `?kind=${kind}` : ''}`),
+  getFilterOptions: (kind) =>
+    request<FilterOptions>(`/api/filters/options${kind && kind !== 'tender' ? `?kind=${kind}` : ''}`),
   getAllCategories: () => request<CpvCategory[]>('/api/categories/all'),
-  getTrackedCategories: () => request<TrackedCategory[]>('/api/categories'),
-  addTrackedCategory: (categoryId) =>
+  getTrackedCategories: (kind) =>
+    request<TrackedCategory[]>(`/api/categories${kind && kind !== 'tender' ? `?kind=${kind}` : ''}`),
+  addTrackedCategory: (categoryId, kind) =>
     request<TrackedCategory>('/api/categories', {
       method: 'POST',
-      body: JSON.stringify({ categoryId }),
+      body: JSON.stringify({ categoryId, kind: kind ?? 'tender' }),
     }),
-  removeTrackedCategory: (categoryId) =>
-    request<void>(`/api/categories/${categoryId}`, { method: 'DELETE' }),
+  removeTrackedCategory: (categoryId, kind) =>
+    request<void>(
+      `/api/categories/${categoryId}${kind && kind !== 'tender' ? `?kind=${kind}` : ''}`,
+      { method: 'DELETE' },
+    ),
     triggerBackfill: (categoryId, options) =>
     request<ScrapeRun>(`/api/categories/${categoryId}/backfill`, {
       method: 'POST',
       body: JSON.stringify({
         dateFrom: options?.dateFrom,
         days: options?.days,
+        kind: options?.kind ?? 'tender',
       }),
     }),
-  triggerRescrape: (categoryId) =>
-    request<ScrapeRun>(`/api/categories/${categoryId}/rescrape`, { method: 'POST' }),
+  triggerRescrape: (categoryId, kind) =>
+    request<ScrapeRun>(
+      `/api/categories/${categoryId}/rescrape${kind && kind !== 'tender' ? `?kind=${kind}` : ''}`,
+      { method: 'POST' },
+    ),
   getScrapeHealth: () => request<ScrapeHealth>('/api/runs'),
   stopScrape: () => request<{ ok: boolean; run: ScrapeRun | null }>('/api/scrape/stop', { method: 'POST' }),
   resumeRun: (runId) => request<ScrapeRun>(`/api/runs/${runId}/resume`, { method: 'POST' }),

@@ -18,6 +18,7 @@ from tender_scraper.cpv_seed import seed_cpv_categories
 from tender_scraper.db import init_db
 from tender_scraper.pipeline import ScrapePipeline, run_backfill
 from tender_scraper.queries import filter_options, get_stats, get_tender, list_tenders
+from tender_scraper.listing import KIND_MRS, KIND_TENDER, normalize_kind
 from tender_scraper.engagements import (
     EngagementError,
     add_engagement,
@@ -116,11 +117,13 @@ def auth_lock():
 
 class AddCategoryBody(BaseModel):
     categoryId: int
+    kind: str = KIND_TENDER
 
 
 class BackfillBody(BaseModel):
     dateFrom: date | None = None
     days: int | None = None
+    kind: str = KIND_TENDER
 
 
 class SettingsUpdateBody(BaseModel):
@@ -173,6 +176,7 @@ def tenders(
     pageSize: int = 20,
     sortBy: str = "announcementDate",
     sortDir: str = "desc",
+    kind: str = KIND_TENDER,
 ):
     return list_tenders(
         {
@@ -197,13 +201,14 @@ def tenders(
             "pageSize": pageSize,
             "sortBy": sortBy,
             "sortDir": sortDir,
+            "kind": kind,
         }
     )
 
 
 @app.get("/api/tenders/{app_id}")
-def tender_detail(app_id: int):
-    data = get_tender(app_id)
+def tender_detail(app_id: int, kind: str = KIND_TENDER):
+    data = get_tender(app_id, kind=kind)
     if not data:
         raise HTTPException(404, "Tender not found")
     return data
@@ -255,13 +260,13 @@ def remove_engagement(engagement_id: int):
 
 
 @app.get("/api/filters/options")
-def options():
-    return filter_options(repo)
+def options(kind: str = KIND_TENDER):
+    return filter_options(repo, kind=kind)
 
 
 @app.get("/api/categories")
-def categories():
-    return repo.list_tracked()
+def categories(kind: str = KIND_TENDER):
+    return repo.list_tracked(kind=kind)
 
 
 @app.get("/api/categories/all")
@@ -274,12 +279,12 @@ def add_category(body: AddCategoryBody):
     cat = repo.get_cpv(body.categoryId)
     if not cat:
         raise HTTPException(404, "Unknown CPV category")
-    return repo.add_tracked(cat["id"], cat["code"], cat["name"])
+    return repo.add_tracked(cat["id"], cat["code"], cat["name"], kind=body.kind)
 
 
 @app.delete("/api/categories/{category_id}")
-def remove_category(category_id: int):
-    repo.remove_tracked(category_id)
+def remove_category(category_id: int, kind: str = KIND_TENDER):
+    repo.remove_tracked(category_id, kind=kind)
     return {"ok": True}
 
 
@@ -289,6 +294,7 @@ def _run_backfill_job(
     days: int | None = None,
     run_id: int | None = None,
     force_refresh: bool = False,
+    listing_kind: str = KIND_TENDER,
 ) -> None:
     run_backfill(
         days=days,
@@ -296,12 +302,14 @@ def _run_backfill_job(
         date_from=date_from,
         run_id=run_id,
         force_refresh=force_refresh,
+        listing_kind=listing_kind,
     )
 
 
 @app.post("/api/categories/{category_id}/backfill")
 def backfill_category(category_id: int, background: BackgroundTasks, body: BackfillBody | None = None):
     body = body or BackfillBody()
+    listing_kind = normalize_kind(body.kind)
     date_from = body.dateFrom
     days = body.days
     if date_from is None and days is None:
@@ -312,31 +320,34 @@ def backfill_category(category_id: int, background: BackgroundTasks, body: Backf
     if repo.get_active_run():
         raise HTTPException(409, "A scrape is already running. Stop it first.")
 
-    tracked = [c for c in repo.list_tracked() if c["id"] == category_id]
+    tracked = [c for c in repo.list_tracked(kind=listing_kind) if c["id"] == category_id]
     if not tracked:
         # Allow backfill only for tracked categories
         cat = repo.get_cpv(category_id)
         if not cat:
             raise HTTPException(404, "Category not found")
-        repo.add_tracked(cat["id"], cat["code"], cat["name"])
-        tracked = [c for c in repo.list_tracked() if c["id"] == category_id]
+        repo.add_tracked(cat["id"], cat["code"], cat["name"], kind=listing_kind)
+        tracked = [c for c in repo.list_tracked(kind=listing_kind) if c["id"] == category_id]
 
     categories = [c["code"] for c in tracked]
     effective_from = date_from or (date.today() - timedelta(days=days or 365))
     try:
         run_id = repo.start_run(
             "backfill",
-            categories,
+            [f"MRS:{c}" if listing_kind == KIND_MRS else c for c in categories],
             categories_total=1,
             date_from=effective_from.isoformat(),
             date_to=date.today().isoformat(),
             category_ids=[category_id],
+            listing_kind=listing_kind,
         )
     except ActiveScrapeError as exc:
         raise HTTPException(409, str(exc)) from exc
     if categories:
         repo.update_run_progress(run_id, current_category=categories[0], categories_total=1)
-    background.add_task(_run_backfill_job, category_id, effective_from, days, run_id)
+    background.add_task(
+        _run_backfill_job, category_id, effective_from, days, run_id, False, listing_kind
+    )
     run = repo.get_run(run_id)
     if not run:
         raise HTTPException(500, "Failed to create scrape run")
@@ -344,16 +355,17 @@ def backfill_category(category_id: int, background: BackgroundTasks, body: Backf
 
 
 @app.post("/api/categories/{category_id}/rescrape")
-def rescrape_category(category_id: int, background: BackgroundTasks):
+def rescrape_category(category_id: int, background: BackgroundTasks, kind: str = KIND_TENDER):
     if repo.get_active_run():
         raise HTTPException(409, "A scrape is already running. Stop it first.")
 
-    tracked = [c for c in repo.list_tracked() if c["id"] == category_id]
+    listing_kind = normalize_kind(kind)
+    tracked = [c for c in repo.list_tracked(kind=listing_kind) if c["id"] == category_id]
     if not tracked:
         raise HTTPException(404, "Category not found")
 
     cat = tracked[0]
-    earliest = repo.earliest_announcement_date(cat["code"])
+    earliest = repo.earliest_announcement_date(cat["code"], listing_kind=listing_kind)
     try:
         effective_from = date.fromisoformat(earliest) if earliest else date.today() - timedelta(days=365)
     except ValueError:
@@ -361,16 +373,17 @@ def rescrape_category(category_id: int, background: BackgroundTasks):
     try:
         run_id = repo.start_run(
             "rescrape",
-            [cat["code"]],
+            [f"MRS:{cat['code']}" if listing_kind == KIND_MRS else cat["code"]],
             categories_total=1,
             date_from=effective_from.isoformat(),
             date_to=date.today().isoformat(),
             category_ids=[category_id],
+            listing_kind=listing_kind,
         )
     except ActiveScrapeError as exc:
         raise HTTPException(409, str(exc)) from exc
     repo.update_run_progress(run_id, current_category=cat["code"], categories_total=1)
-    background.add_task(_run_backfill_job, category_id, effective_from, None, run_id, True)
+    background.add_task(_run_backfill_job, category_id, effective_from, None, run_id, True, listing_kind)
     run = repo.get_run(run_id)
     if not run:
         raise HTTPException(500, "Failed to create scrape run")
@@ -397,8 +410,14 @@ def resume_run(run_id: int, background: BackgroundTasks):
     date_to = date.fromisoformat(previous["dateTo"]) if previous.get("dateTo") else date.today()
     category_ids = previous.get("categoryIds")
     mode = previous["mode"]
+    listing_kind = previous.get("listingKind")
 
-    tracked = repo.list_tracked(enabled_only=True)
+    if listing_kind:
+        tracked = repo.list_tracked(enabled_only=True, kind=listing_kind)
+    else:
+        tracked = repo.list_tracked(enabled_only=True, kind=KIND_TENDER) + repo.list_tracked(
+            enabled_only=True, kind=KIND_MRS
+        )
     if category_ids:
         tracked = [c for c in tracked if c["id"] in category_ids]
     if not tracked:
@@ -407,12 +426,16 @@ def resume_run(run_id: int, background: BackgroundTasks):
     try:
         new_run_id = repo.start_run(
             mode,
-            [c["code"] for c in tracked],
+            [
+                f"MRS:{c['code']}" if c.get("kind") == KIND_MRS else c["code"]
+                for c in tracked
+            ],
             categories_total=len(tracked),
             date_from=date_from.isoformat(),
             date_to=date_to.isoformat(),
             category_ids=category_ids,
             resumed_from=run_id,
+            listing_kind=listing_kind,
         )
     except ActiveScrapeError as exc:
         raise HTTPException(409, str(exc)) from exc
@@ -425,6 +448,7 @@ def resume_run(run_id: int, background: BackgroundTasks):
             category_ids=category_ids,
             run_id=new_run_id,
             force_refresh=mode == "rescrape",
+            listing_kind=listing_kind,
         )
 
     background.add_task(job)
@@ -467,16 +491,17 @@ def scrape_daily(background: BackgroundTasks):
     if repo.get_active_run():
         raise HTTPException(409, "A scrape is already running. Stop it first.")
 
-    tracked = repo.list_tracked(enabled_only=True)
-    if not tracked:
+    tender_cats = repo.list_tracked(enabled_only=True, kind=KIND_TENDER)
+    mrs_cats = repo.list_tracked(enabled_only=True, kind=KIND_MRS)
+    if not tender_cats and not mrs_cats:
         raise HTTPException(400, "No tracked categories enabled")
-    categories = [c["code"] for c in tracked]
+    categories = [c["code"] for c in tender_cats] + [f"MRS:{c['code']}" for c in mrs_cats]
     date_from = date.today() - timedelta(days=load_settings().daily_lookback_days)
     try:
         run_id = repo.start_run(
             "daily",
             categories,
-            categories_total=len(tracked),
+            categories_total=len(tender_cats) + len(mrs_cats),
             date_from=date_from.isoformat(),
             date_to=date.today().isoformat(),
         )

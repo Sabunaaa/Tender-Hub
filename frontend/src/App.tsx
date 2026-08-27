@@ -9,6 +9,7 @@ import { EngagementSettingsPage } from './pages/EngagementSettingsPage'
 import { RunsPage } from './pages/RunsPage'
 import { SettingsLayout } from './pages/SettingsLayout'
 import { SettingsPage } from './pages/SettingsPage'
+import { MarketResearchPage } from './pages/MarketResearchPage'
 import { TenderDetailPage } from './pages/TenderDetailPage'
 import { TendersPage } from './pages/TendersPage'
 
@@ -32,6 +33,8 @@ export default function App() {
               <Route index element={<DashboardPage />} />
               <Route path="tenders" element={<TendersPage />} />
               <Route path="tenders/:id" element={<TenderDetailPage />} />
+              <Route path="market-research" element={<MarketResearchPage />} />
+              <Route path="market-research/:id" element={<TenderDetailPage />} />
               <Route path="engagement" element={<EngagementPage />} />
               <Route path="settings" element={<SettingsLayout />}>
                 <Route index element={<SettingsPage />} />

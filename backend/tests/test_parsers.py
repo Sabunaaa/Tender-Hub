@@ -6,6 +6,7 @@ from tender_scraper.parsers import (
     parse_docs_tab,
     parse_listing_page,
     parse_main_tab,
+    parse_mrs_listing_page,
     parse_status_history,
 )
 

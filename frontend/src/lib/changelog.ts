@@ -1,4 +1,4 @@
-export const APP_VERSION = '1.0.2'
+export const APP_VERSION = '1.0.3'
 
 export interface ReleaseNotes {
   version: string
@@ -7,6 +7,17 @@ export interface ReleaseNotes {
 }
 
 export const CHANGELOG: ReleaseNotes[] = [
+  {
+    version: '1.0.3',
+    title: 'Market research (MRS)',
+    items: [
+      'Market research is a separate explorer between Tenders and Engagement, using the portal’s MRS search rather than a tender-type filter.',
+      'The dashboard digest can switch Tenders | MRS on top of last scrape / today / this week.',
+      'Settings → Categories keeps independent CPV lists for tenders and MRS (same three defaults to start).',
+      'The daily scrape walks enabled tender CPVs, then enabled MRS CPVs, in one job.',
+      'Move MRS listings to engagement; the pipeline shows a Tender / MRS kind column.',
+    ],
+  },
   {
     version: '1.0.2',
     title: 'Digest views and category ownership',

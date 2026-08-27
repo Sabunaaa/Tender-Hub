@@ -88,6 +88,23 @@ _SEARCH_DEFAULTS = {
     "app_pricelist": "0",
 }
 
+_MRS_SEARCH_DEFAULTS = {
+    "action": "search_qep",
+    "search": "yez",
+    "qep_amount_from": "",
+    "qep_amount_to": "",
+    "qep_reg_no": "",
+    "qep_app_type": "",
+    "qep_shems_id": "0",
+    "org_f": "",
+    "qep_status": "0",
+    "qep_basecode": "0",
+    "qep_codes": "",
+    "qep_date_type": "1",
+    "qep_date_from": "",
+    "qep_date_till": "",
+}
+
 
 def _fmt_date(value: date) -> str:
     return value.strftime("%d.%m.%Y")
@@ -236,12 +253,62 @@ class TenderPortalClient:
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
 
+    def search_mrs(
+        self,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        date_type: int = 1,
+        status: str | int = 0,
+        cpv_category: str | int = 0,
+        cpv_code: str = "",
+    ) -> str:
+        """Search the portal's Market research (QEP) listing and return page 1 HTML."""
+        self.start_session()
+        payload = dict(_MRS_SEARCH_DEFAULTS)
+        payload.update(
+            {
+                "qep_date_type": str(date_type),
+                "qep_date_from": _fmt_date(date_from) if date_from else "",
+                "qep_date_till": _fmt_date(date_to) if date_to else "",
+                "qep_status": str(status),
+                "qep_basecode": str(cpv_category or 0),
+                "qep_codes": cpv_code or "",
+            }
+        )
+        log.info(
+            "Searching MRS from %s to %s",
+            payload["qep_date_from"] or "*",
+            payload["qep_date_till"] or "*",
+        )
+        return self._request(
+            "POST",
+            config.QEP_CONTROLLER_URL,
+            data=payload,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+
     def get_page(self, page: int) -> str:
         """Fetch an absolute page number within the session's current search."""
         return self._request(
             "GET",
             config.CONTROLLER_URL,
             params={"action": "search_app", "page": page},
+        )
+
+    def get_mrs_page(self, page: int) -> str:
+        """Fetch an absolute page number within the session's current MRS search."""
+        return self._request(
+            "GET",
+            config.QEP_CONTROLLER_URL,
+            params={"action": "search_qep", "page": page},
+        )
+
+    def get_mrs_main(self, qep_id: int) -> str:
+        """Fetch the market-research detail pane (fields, CPV, attachments)."""
+        return self._request(
+            "GET",
+            config.QEP_CONTROLLER_URL,
+            params={"action": "qep_main", "qep_id": qep_id},
         )
 
     def iter_search_pages(self, first_page_html: str, total_pages: int, start_page: int = 2) -> Iterator[str]:

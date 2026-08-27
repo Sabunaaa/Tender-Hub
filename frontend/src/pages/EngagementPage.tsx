@@ -93,6 +93,7 @@ function ColumnSelect({
 export function EngagementPage() {
   const qc = useQueryClient()
   const [code, setCode] = useState('')
+  const [kindFilter, setKindFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const [donorFilter, setDonorFilter] = useState('')
   const [announcementFilter, setAnnouncementFilter] = useState('')
@@ -131,6 +132,7 @@ export function EngagementPage() {
   }, [rows])
 
   const filtersActive = Boolean(
+    kindFilter ||
     typeFilter ||
       donorFilter ||
       announcementFilter.trim() ||
@@ -153,6 +155,7 @@ export function EngagementPage() {
     const min = valueMin ? Number(valueMin) : null
     const max = valueMax ? Number(valueMax) : null
     return rows.filter((row) => {
+      if (kindFilter && (row.kind ?? 'tender') !== kindFilter) return false
       if (typeFilter && row.procurementType !== typeFilter) return false
       if (donorFilter) {
         const donor = row.donor.trim() || 'N/A'
@@ -186,6 +189,7 @@ export function EngagementPage() {
     })
   }, [
     rows,
+    kindFilter,
     typeFilter,
     donorFilter,
     announcementFilter,
@@ -216,6 +220,7 @@ export function EngagementPage() {
     setPage(1)
   }, [
     pageSize,
+    kindFilter,
     typeFilter,
     donorFilter,
     announcementFilter,
@@ -237,6 +242,7 @@ export function EngagementPage() {
   }, [page, totalPages])
 
   const clearFilters = () => {
+    setKindFilter('')
     setTypeFilter('')
     setDonorFilter('')
     setAnnouncementFilter('')
@@ -352,6 +358,13 @@ export function EngagementPage() {
             <table className="engagement-table">
               <thead>
                 <tr className="engagement-filter-row">
+                  <th>
+                    <ColumnSelect label="Filter listing kind" value={kindFilter} onChange={setKindFilter}>
+                      <option value="">All</option>
+                      <option value="tender">Tender</option>
+                      <option value="mrs">MRS</option>
+                    </ColumnSelect>
+                  </th>
                   <th>
                     <ColumnSelect label="Filter type" value={typeFilter} onChange={setTypeFilter}>
                       <option value="">All types</option>
@@ -498,6 +511,7 @@ export function EngagementPage() {
                   </th>
                 </tr>
                 <tr>
+                  <th>Kind</th>
                   <th>Type</th>
                   <th>Donor</th>
                   <th className="announce-col">Announcement No.</th>
@@ -517,13 +531,20 @@ export function EngagementPage() {
               <tbody>
                 {paged.map((row) => (
                   <tr key={row.id}>
+                    <td className="type-col">
+                      <span className={`status-pill ${row.kind === 'mrs' ? 'violet' : 'info'}`}>
+                        {row.kind === 'mrs' ? 'MRS' : 'Tender'}
+                      </span>
+                    </td>
                     <td className="type-col" title={row.procurementType || undefined}>
                       {formatProcurementType(row.procurementType)}
                     </td>
                     <td className="nowrap-col">{row.donor?.trim() ? row.donor : 'N/A'}</td>
                     <td className="announce-col">
                       {row.appId ? (
-                        <Link to={`/tenders/${row.appId}`}>{row.announcementNumber}</Link>
+                        <Link to={row.kind === 'mrs' ? `/market-research/${row.appId}` : `/tenders/${row.appId}`}>
+                          {row.announcementNumber}
+                        </Link>
                       ) : (
                         row.announcementNumber
                       )}

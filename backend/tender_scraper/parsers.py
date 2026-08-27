@@ -9,10 +9,26 @@ from typing import Any
 from bs4 import BeautifulSoup
 
 SHOW_APP_RE = re.compile(r"ShowApp\((\d+),'([^']*)',(\d+),'([^']+)'\)")
+SHOW_QEP_RE = re.compile(r"ShowQep\((\d+)\)")
 RECORD_COUNT_RE = re.compile(r"(\d+)&nbsp;Record\(s\)&nbsp;\(page:\s*(\d+)/(\d+)\)")
 AMOUNT_RE = re.compile(r"([\d`\s.,]+)\s*(GEL|USD|EUR)?", re.I)
 PROFILE_RE = re.compile(r"ShowProfile\((\d+)\)")
 FILE_HREF_RE = re.compile(r"library/files\.php\?[^\"']+")
+
+MRS_STATUS_EN = {
+    "გამოცხადებულია": "Announced",
+    "წინადადების მიღება დაწყებულია": "Proposal collection started",
+    "წინადადების მიღება დასრულებულია": "Proposal collection ended",
+    "არ შედგა": "Did not take place",
+    "შეწყვეტილია": "Terminated",
+    "ბაზრის კვლევა დასრულებულია": "Market research completed",
+}
+
+MRS_TYPE_EN = {
+    "ელექტრონული შესყიდვა": "Electronic procurement",
+    "გამარტივებული შესყიდვა": "Simplified procurement",
+    "სხვა": "Other",
+}
 
 
 @dataclass
@@ -47,6 +63,7 @@ class ListingPage:
 class ParsedTender:
     app_id: int
     key: str
+    kind: str = "tender"
     announcement_number: str = ""
     title: str = ""
     status: str = ""
@@ -195,6 +212,80 @@ def parse_listing_page(html: str) -> ListingPage:
     return ListingPage(rows=rows, total_records=total_records, page=page, total_pages=total_pages)
 
 
+def _localize_mrs_status(value: str) -> str:
+    token = (value or "").strip()
+    collapsed = re.sub(r"\s+", " ", token)
+    return MRS_STATUS_EN.get(token) or MRS_STATUS_EN.get(collapsed) or token
+
+
+def _localize_mrs_type(value: str) -> str:
+    token = (value or "").strip()
+    return MRS_TYPE_EN.get(token, token)
+
+
+def parse_mrs_listing_page(html: str) -> ListingPage:
+    """Parse a QEP / market-research search-results fragment."""
+    soup = BeautifulSoup(html, "html.parser")
+    rows: list[ListingRow] = []
+    for tr in soup.select("tr[id^=A]"):
+        onclick = tr.get("onclick") or ""
+        m = SHOW_QEP_RE.search(onclick)
+        if not m:
+            continue
+        app_id = int(m.group(1))
+        status = _localize_mrs_status(_text(tr.select_one("p.status")))
+        procurement_type = ""
+        fields: dict[str, str] = {}
+        for p in tr.select("td > p"):
+            classes = p.get("class") or []
+            t = _text(p)
+            if "status" in classes:
+                continue
+            if ":" in t:
+                k, _, v = t.partition(":")
+                fields[k.strip()] = v.strip()
+            elif not procurement_type:
+                procurement_type = t
+        cat_text = fields.get("Procuring category", "")
+        cat_code = ""
+        cat_name = cat_text
+        cm = re.match(r"(\d+)\s*-\s*(.*)", cat_text)
+        if cm:
+            cat_code, cat_name = cm.group(1), cm.group(2).strip()
+        value_text = fields.get("Estimated value of procurement", "")
+        amount, currency = _parse_amount(value_text) if value_text else (None, "GEL")
+        rows.append(
+            ListingRow(
+                app_id=app_id,
+                key="",
+                announcement_number=fields.get("Announcment number") or fields.get("Announcement number") or "",
+                status=status,
+                procurement_type=_localize_mrs_type(procurement_type),
+                buyer=fields.get("Procuring entities", ""),
+                category_code=cat_code,
+                category_name=cat_name,
+                announcement_date=_dmy_to_iso(
+                    fields.get("Procurement announcment date") or fields.get("Procurement announcement date")
+                ),
+                bid_deadline=_dmy_to_iso(fields.get("Offer reception term")),
+                estimated_value=amount,
+                currency=currency,
+                bidder_count=0,
+                winner=None,
+                contract_status=None,
+                raw_html=str(tr),
+            )
+        )
+
+    total_records = page = total_pages = 0
+    m = RECORD_COUNT_RE.search(html)
+    if m:
+        total_records, page, total_pages = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    elif rows:
+        page, total_pages, total_records = 1, 1, len(rows)
+    return ListingPage(rows=rows, total_records=total_records, page=page, total_pages=total_pages)
+
+
 def parse_main_tab(html: str, app_id: int, key: str) -> ParsedTender:
     soup = BeautifulSoup(html, "html.parser")
     fields = _field_map(soup)
@@ -268,6 +359,74 @@ def parse_main_tab(html: str, app_id: int, key: str) -> ParsedTender:
             tender.source_url = um.group(0).rstrip(".")
     else:
         tender.source_url = f"https://tenders.procurement.gov.ge/public/?go={app_id}&lang=en"
+    return tender
+
+
+def parse_mrs_main(html: str, app_id: int) -> ParsedTender:
+    """Parse the QEP detail pane (``action=qep_main``). Labels are mixed KA/EN."""
+    soup = BeautifulSoup(html, "html.parser")
+    fields = _field_map(soup)
+    tender = ParsedTender(app_id=app_id, key="", kind="mrs")
+    tender.procurement_type = _localize_mrs_type(
+        fields.get("შესყიდვის პროცედურა") or fields.get("Procurement type") or ""
+    )
+    tender.announcement_number = (
+        fields.get("რეგისტრაციის ნომერი")
+        or fields.get("Announcment number")
+        or fields.get("Announcement number")
+        or ""
+    ).strip()
+    tender.status = _localize_mrs_status(
+        fields.get("განცხადების სტატუსი") or fields.get("Procurement proceeding status") or ""
+    )
+    buyer_cell = None
+    for tr in soup.select("table.with-label tr"):
+        cells = tr.find_all("td", recursive=False)
+        if len(cells) >= 2 and "Procuring entities" in _text(cells[0]):
+            buyer_cell = cells[1]
+            break
+    if buyer_cell:
+        tender.buyer = _text(buyer_cell)
+        pm = PROFILE_RE.search(str(buyer_cell))
+        if pm:
+            tender.buyer_org_id = int(pm.group(1))
+    tender.announcement_date = _dmy_to_iso(
+        fields.get("რეგისტრაციის თარიღი")
+        or fields.get("Procurement announcment date")
+        or fields.get("Procurement announcement date")
+    )
+    tender.bids_accepted_from = _dmy_to_iso(fields.get("Bids accepted from"))
+    tender.bid_deadline = _dmy_to_iso(fields.get("Deadline for bid submission"))
+    amount, currency = _parse_amount(fields.get("შესყიდვის ღირებულება") or fields.get("Estimated value of procurement", ""))
+    tender.estimated_value = amount
+    tender.currency = currency or "GEL"
+    tender.supply_period = fields.get("მოწოდების ვადა") or fields.get("Supply Period") or None
+    description = (fields.get("შესყიდვის ობიექტის აღწერა") or "").strip()
+    if description:
+        tender.description = description
+        tender.title = description[:500]
+    if not tender.title:
+        tender.title = tender.announcement_number
+
+    cpv_codes: list[dict[str, str]] = []
+    for li in soup.select("ul li"):
+        t = _text(li)
+        m = re.match(r"(\d{8})\s*-\s*(.+)", t)
+        if m:
+            cpv_codes.append({"code": m.group(1), "name": m.group(2).strip()})
+    tender.cpv_codes = cpv_codes
+    if cpv_codes:
+        tender.category_code = tender.category_code or cpv_codes[0]["code"]
+        tender.category_name = tender.category_name or cpv_codes[0]["name"]
+
+    attachments: list[dict[str, str]] = []
+    for a in soup.select("a[href*='files.php']"):
+        href = a.get("href") or ""
+        if not href.startswith("http"):
+            href = "https://tenders.procurement.gov.ge/public/" + href.lstrip("/")
+        attachments.append({"name": _text(a) or href, "url": href})
+    tender.attachments = attachments
+    tender.source_url = "https://tenders.procurement.gov.ge/public/?lang=en"
     return tender
 
 

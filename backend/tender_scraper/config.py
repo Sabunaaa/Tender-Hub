@@ -13,6 +13,8 @@ LOG_DIR = Path(os.environ.get("TENDER_LOG_DIR", DATA_DIR / "logs"))
 BASE_URL = "https://tenders.procurement.gov.ge/public/"
 CONTROLLER_URL = BASE_URL + "library/controller.php"
 
+QEP_CONTROLLER_URL = BASE_URL + "library/qep/qep_controller.php"
+
 # The site paginates search results four rows at a time and offers no page-size
 # parameter, so request volume is driven almost entirely by the date window.
 RESULTS_PER_PAGE = 4
